@@ -98,7 +98,6 @@ async function exportToExcel(records: TimeEntry[], filename = "time-records") {
   const rows = buildExportRows(records);
   const ws = XLSX.utils.json_to_sheet(rows);
 
-  // Column widths
   ws["!cols"] = [
     { wch: 22 }, { wch: 28 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
     { wch: 52 }, { wch: 12 }, { wch: 52 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
@@ -115,7 +114,6 @@ async function exportToPDF(records: TimeEntry[], filename = "time-records") {
 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
-  // Header
   doc.setFillColor(26, 25, 22);
   doc.rect(0, 0, 297, 18, "F");
   doc.setTextColor(255, 255, 255);
@@ -150,9 +148,7 @@ async function exportToPDF(records: TimeEntry[], filename = "time-records") {
       fontSize: 7,
       cellPadding: { top: 4, bottom: 4, left: 3, right: 3 },
     },
-    alternateRowStyles: {
-      fillColor: [250, 249, 246],
-    },
+    alternateRowStyles: { fillColor: [250, 249, 246] },
     columnStyles: {
       0: { fontStyle: "bold", textColor: [26, 25, 22] },
       6: { textColor: [217, 119, 6] },
@@ -162,7 +158,6 @@ async function exportToPDF(records: TimeEntry[], filename = "time-records") {
     margin: { left: 14, right: 14 },
   });
 
-  // Footer
   const pageCount = (doc as any).internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
@@ -196,6 +191,9 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
+
+  // ── DELETE MODAL STATE (only addition) ──
+  const [deleteModal, setDeleteModal] = useState<{ id: string; name: string; date: string } | null>(null);
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -232,8 +230,16 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
 
   useEffect(() => { if (user) fetchRecords(); }, [user, fetchRecords]);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this record?")) return;
+  // ── UPDATED: opens modal instead of confirm() ──
+  const handleDelete = (id: string, name: string, date: string) => {
+    setDeleteModal({ id, name, date });
+  };
+
+  // ── NEW: called when user confirms inside modal ──
+  const confirmDelete = async () => {
+    if (!deleteModal) return;
+    const { id } = deleteModal;
+    setDeleteModal(null);
     setDeleting(id);
     await fetch("/api/time/records", {
       method: "DELETE",
@@ -349,30 +355,21 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
           border: 1.5px solid;
         }
 
-        .btn-export:disabled {
-          opacity: 0.5;
-          cursor: wait;
-        }
+        .btn-export:disabled { opacity: 0.5; cursor: wait; }
 
         .btn-export-excel {
           background: #f0fdf4;
           border-color: #86efac;
           color: #15803d;
         }
-        .btn-export-excel:hover:not(:disabled) {
-          background: #dcfce7;
-          border-color: #4ade80;
-        }
+        .btn-export-excel:hover:not(:disabled) { background: #dcfce7; border-color: #4ade80; }
 
         .btn-export-pdf {
           background: #fff1f2;
           border-color: #fca5a5;
           color: #b91c1c;
         }
-        .btn-export-pdf:hover:not(:disabled) {
-          background: #fee2e2;
-          border-color: #f87171;
-        }
+        .btn-export-pdf:hover:not(:disabled) { background: #fee2e2; border-color: #f87171; }
 
         .export-spinner {
           width: 10px;
@@ -612,7 +609,7 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
           color: var(--text-light);
         }
 
-        /* ── INLINE EXPORT BTNS (inside table header) ── */
+        /* ── INLINE EXPORT BTNS ── */
         .btn-export-sm {
           display: inline-flex;
           align-items: center;
@@ -809,6 +806,121 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
         .del-btn:hover { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
         .del-btn:disabled { opacity: 0.3; cursor: wait; }
 
+        /* ── DELETE MODAL ── */
+        .del-modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.45);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 999;
+          animation: dmFadeIn 0.15s ease;
+        }
+
+        @keyframes dmFadeIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+
+        .del-modal {
+          background: var(--surface);
+          border: 1.5px solid var(--border);
+          border-radius: var(--radius);
+          box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+          padding: 28px 28px 24px;
+          width: 90%;
+          max-width: 400px;
+          animation: dmSlideUp 0.2s ease;
+        }
+
+        @keyframes dmSlideUp {
+          from { opacity: 0; transform: translateY(12px) scale(0.97); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .del-modal-icon {
+          width: 44px;
+          height: 44px;
+          background: #fee2e2;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 20px;
+          margin-bottom: 16px;
+        }
+
+        .del-modal-title {
+          font-family: 'Cabinet Grotesk', sans-serif;
+          font-size: 18px;
+          font-weight: 900;
+          color: var(--text);
+          letter-spacing: -0.5px;
+          margin-bottom: 6px;
+        }
+
+        .del-modal-body {
+          font-family: 'DM Mono', monospace;
+          font-size: 11px;
+          color: var(--text-muted);
+          line-height: 1.6;
+          margin-bottom: 6px;
+        }
+
+        .del-modal-name {
+          font-family: 'Cabinet Grotesk', sans-serif;
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--text);
+          background: var(--surface-alt);
+          border: 1.5px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 8px 12px;
+          margin: 10px 0 20px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .del-modal-actions {
+          display: flex;
+          gap: 8px;
+          justify-content: flex-end;
+        }
+
+        .del-modal-cancel {
+          background: transparent;
+          border: 1.5px solid var(--border);
+          color: var(--text-muted);
+          padding: 8px 18px;
+          border-radius: var(--radius-sm);
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .del-modal-cancel:hover { border-color: var(--border-strong); color: var(--text); }
+
+        .del-modal-confirm {
+          background: #dc2626;
+          border: 1.5px solid #dc2626;
+          color: #fff;
+          padding: 8px 18px;
+          border-radius: var(--radius-sm);
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.15s;
+          font-weight: 600;
+        }
+        .del-modal-confirm:hover { background: #b91c1c; border-color: #b91c1c; }
+
         /* ── MOBILE CARDS ── */
         .mobile-cards { display: flex; flex-direction: column; }
 
@@ -988,29 +1100,58 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
           text-transform: uppercase;
           margin-top: 10px;
         }
-          .btn-analytics {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: #eff6ff;
-  border: 1.5px solid #93c5fd;
-  color: #1d4ed8;
-  padding: 7px 14px;
-  border-radius: var(--radius-sm);
-  font-family: 'DM Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  text-decoration: none;
-  font-weight: 500;
-  transition: all 0.15s;
-  box-shadow: var(--shadow);
-  flex-shrink: 0;
-}
-.btn-analytics:hover { background: #dbeafe; border-color: #60a5fa; }
+
+        .btn-analytics {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #eff6ff;
+          border: 1.5px solid #93c5fd;
+          color: #1d4ed8;
+          padding: 7px 14px;
+          border-radius: var(--radius-sm);
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          text-decoration: none;
+          font-weight: 500;
+          transition: all 0.15s;
+          box-shadow: var(--shadow);
+          flex-shrink: 0;
+        }
+        .btn-analytics:hover { background: #dbeafe; border-color: #60a5fa; }
       `}</style>
 
       <div className="dh-wrap">
+
+        {/* ── DELETE CONFIRMATION MODAL ── */}
+        {deleteModal && (
+          <div className="del-modal-overlay" onClick={() => setDeleteModal(null)}>
+            <div className="del-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="del-modal-icon">🗑️</div>
+              <div className="del-modal-title">Delete Record?</div>
+              <div className="del-modal-body">
+                This will permanently remove the time record from the database. This action cannot be undone.
+              </div>
+              <div className="del-modal-name">
+                <span>👤</span>
+                <span>{deleteModal.name}</span>
+                <span style={{ marginLeft: "auto", fontFamily: "'DM Mono', monospace", fontSize: 10, color: "var(--text-light)", fontWeight: 400 }}>
+                  {deleteModal.date}
+                </span>
+              </div>
+              <div className="del-modal-actions">
+                <button className="del-modal-cancel" onClick={() => setDeleteModal(null)}>
+                  Cancel
+                </button>
+                <button className="del-modal-confirm" onClick={confirmDelete}>
+                  🗑 Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Header */}
         <div className="dh-header">
@@ -1216,7 +1357,12 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                             </span>
                           </td>
                           <td>
-                            <button className="del-btn" disabled={deleting === r._id} onClick={() => handleDelete(r._id)}>
+                            {/* ── UPDATED: passes name + date to modal ── */}
+                            <button
+                              className="del-btn"
+                              disabled={deleting === r._id}
+                              onClick={() => handleDelete(r._id, r.employeeName, r.date)}
+                            >
                               {deleting === r._id ? "…" : "Delete"}
                             </button>
                           </td>
@@ -1307,7 +1453,12 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                               </div>
                             )}
                             <div className="detail-actions">
-                              <button className="del-btn" disabled={deleting === r._id} onClick={() => handleDelete(r._id)}>
+                              {/* ── UPDATED: mobile also uses modal ── */}
+                              <button
+                                className="del-btn"
+                                disabled={deleting === r._id}
+                                onClick={() => handleDelete(r._id, r.employeeName, r.date)}
+                              >
                                 {deleting === r._id ? "Deleting…" : "Delete Record"}
                               </button>
                             </div>

@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
         checkIn: now,
         breaks: [],
         bioBreaks: [],
+        photos: [],
         status: "checked-in",
       });
 
@@ -220,6 +221,34 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ entry });
   } catch {
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
+
+// PATCH — save selfie photo URL to a TimeEntry record after action
+// Called from the client after uploading photo to Vercel Blob
+export async function PATCH(req: NextRequest) {
+  try {
+    await connectDB();
+    const { entryId, action, photoUrl } = await req.json();
+
+    if (!entryId || !action || !photoUrl) {
+      return NextResponse.json({ error: "entryId, action and photoUrl are required" }, { status: 400 });
+    }
+
+    const entry = await TimeEntry.findById(entryId);
+    if (!entry) {
+      return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+    }
+
+    if (!entry.photos) entry.photos = [];
+    entry.photos.push({ action, url: photoUrl, takenAt: new Date() });
+    entry.markModified("photos");
+    await entry.save();
+
+    return NextResponse.json({ message: "Photo saved", entry });
+  } catch (err) {
+    console.error("Photo save error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

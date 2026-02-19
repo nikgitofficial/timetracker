@@ -9,6 +9,16 @@ const BreakSessionSchema = new Schema(
   { _id: true }
 );
 
+// 📸 Selfie taken after each action
+const SelfieSchema = new Schema(
+  {
+    url: { type: String, required: true },       // Vercel Blob URL
+    action: { type: String, required: true },     // which action triggered it
+    takenAt: { type: Date, default: Date.now },
+  },
+  { _id: true }
+);
+
 const TimeEntrySchema = new Schema(
   {
     employeeName: { type: String, required: true, trim: true },
@@ -31,6 +41,9 @@ const TimeEntrySchema = new Schema(
       enum: ["checked-in", "on-break", "on-bio-break", "returned", "checked-out"],
       default: "checked-in",
     },
+
+    // 📸 Selfies taken at each punch action
+    selfies: { type: [SelfieSchema], default: [] },
   },
   { timestamps: true }
 );
