@@ -941,7 +941,8 @@ export default function TimeClockPage() {
           Admin?{" "}
           <a href="/login">Login to view all records →</a>
           <p>Crafted by Nikko with coffee and love ☕</p>
-          <p>A gift from nikko to nationgraph family under OM mirah cluster lead by:TL Cris Arandilla</p>
+          <p>A gift from nikko to nationgraph family </p>
+          <p>Under OM mirah cluster lead by:TL Cris Arandilla</p>
         </div>
       </div>
     </>
