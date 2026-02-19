@@ -9,7 +9,7 @@ interface BreakSession {
   _id: string;
   breakIn: string;
   breakOut: string | null;
-  duration: number;
+  duration: number; // minutes
 }
 
 interface TimeEntry {
@@ -35,49 +35,10 @@ function formatTime(isoString: string | null): string {
 }
 
 function formatMinutes(mins: number): string {
-  if (!mins || mins <= 0) return "0m";
+  if (!mins) return "0m";
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-/** Compute live totals from the entry + current time */
-function computeLiveTotals(entry: TimeEntry, now: Date): { workedMins: number; breakMins: number } {
-  if (!entry.checkIn) return { workedMins: 0, breakMins: 0 };
-
-  // For checked-out entries, use the server's final calculated values
-  if (entry.status === "checked-out" && entry.checkOut) {
-    return {
-      workedMins: entry.totalWorked,
-      breakMins: entry.totalBreak,
-    };
-  }
-
-  // For all active statuses (checked-in, on-break, returned),
-  // compute entirely from timestamps so totals tick live
-  const checkInMs = new Date(entry.checkIn).getTime();
-  const nowMs = now.getTime();
-
-  let completedBreakMs = 0;
-  let ongoingBreakMs = 0;
-
-  for (const b of entry.breaks ?? []) {
-    if (b.breakOut) {
-      completedBreakMs += new Date(b.breakOut).getTime() - new Date(b.breakIn).getTime();
-    } else {
-      // Currently on break — accumulate live against now
-      ongoingBreakMs = nowMs - new Date(b.breakIn).getTime();
-    }
-  }
-
-  const totalBreakMs = completedBreakMs + ongoingBreakMs;
-  const elapsedMs = Math.max(0, nowMs - checkInMs);
-  const workedMs = Math.max(0, elapsedMs - totalBreakMs);
-
-  return {
-    workedMins: Math.floor(workedMs / 60000),
-    breakMins: Math.floor(totalBreakMs / 60000),
-  };
 }
 
 export default function TimeClockPage() {
@@ -89,26 +50,57 @@ export default function TimeClockPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [fetching, setFetching] = useState(false);
+  const [actionModal, setActionModal] = useState<{ action: Action; image: string; message: string } | null>(null);
 
-  // Live totals — recalculated every second
-  const [liveTotals, setLiveTotals] = useState({ workedMins: 0, breakMins: 0 });
+  // Action images and messages configuration
+  const actionContent = {
+    "check-in": {
+      images: ["/images/checkin1.jpg", "/images/checkin2.jpg"],
+      messages: [
+        "Welcome! Let's make today productive guys alright rock in roll baby! 💪",
+        "Good to see you!Waka na late hehehehe! 🚀"
+      ]
+    },
+    "break-in": {
+      images: ["/images/break1.jpg", "/images/break2.jpg"],
+      messages: [
+        "Time to recharge!eat well langga! ☕",
+        "Take a breather, you've earned it! ayawg OB ha! 🌟"
+      ]
+    },
+    "break-out": {
+      images: ["/images/return1.jpg", "/images/return2.jpg"],
+      messages: [
+        "Back to action! Let's finish strong baby! 💯",
+        "Refreshed and ready! Let's go lannga ! ⚡"
+      ]
+    },
+    "check-out": {
+      images: ["/images/checkout1.jpg", "/images/checkout2.jpg"],
+      messages: [
+        "Great work today! Time to rest!good night po lannga 🌙",
+        "You've earned your rest. See you tomorrow lannga!goodnight and sleep well po 👋"
+      ]
+    }
+  };
 
-  // Tick every second: update clock + live totals
+  // Get random image and message for action
+  const getActionContent = (action: Action) => {
+    const content = actionContent[action];
+    const randomIndex = Math.floor(Math.random() * 2);
+    return {
+      image: content.images[randomIndex],
+      message: content.messages[randomIndex]
+    };
+  };
+
+  // Live clock
   useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date();
-      setCurrentTime(now);
-      if (entry) setLiveTotals(computeLiveTotals(entry, now));
-    }, 1000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
-  }, [entry]);
+  }, []);
 
-  // Recalculate immediately when entry changes
-  useEffect(() => {
-    if (entry) setLiveTotals(computeLiveTotals(entry, new Date()));
-    else setLiveTotals({ workedMins: 0, breakMins: 0 });
-  }, [entry]);
-
+  // Auto-clear message
   useEffect(() => {
     if (message) {
       const t = setTimeout(() => setMessage(null), 5000);
@@ -116,6 +108,7 @@ export default function TimeClockPage() {
     }
   }, [message]);
 
+  // Fetch today's status by email + name (both required to identify the right employee)
   const fetchStatus = useCallback(async (e: string, n: string) => {
     if (!e.trim() || !n.trim()) return;
     setFetching(true);
@@ -146,6 +139,7 @@ export default function TimeClockPage() {
     if (validateEmail(email) && name.trim()) fetchStatus(email, name);
   };
 
+  // Also fetch when name is filled in (after email is already valid)
   const handleNameBlur = () => {
     if (name.trim() && validateEmail(email)) fetchStatus(email, name);
   };
@@ -157,14 +151,24 @@ export default function TimeClockPage() {
   };
 
   const handleAction = async (action: Action) => {
-    if (!name.trim()) { setMessage({ text: "Please enter your name", type: "error" }); return; }
-    if (!validateEmail(email)) { setMessage({ text: "Please enter a valid email", type: "error" }); return; }
+    if (!name.trim()) {
+      setMessage({ text: "Please enter your name", type: "error" });
+      return;
+    }
+    if (!validateEmail(email)) {
+      setMessage({ text: "Please enter a valid email", type: "error" });
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/time/punch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeName: name.trim(), email: email.trim().toLowerCase(), action }),
+        body: JSON.stringify({
+          employeeName: name.trim(),
+          email: email.trim().toLowerCase(),
+          action,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -172,6 +176,13 @@ export default function TimeClockPage() {
       } else {
         setMessage({ text: data.message, type: "success" });
         setEntry(data.entry);
+        
+        // Show action modal with image and message
+        const { image, message } = getActionContent(action);
+        setActionModal({ action, image, message });
+        
+        // Auto-close modal after 4 seconds
+        setTimeout(() => setActionModal(null), 10000);
       }
     } catch {
       setMessage({ text: "Network error, please try again", type: "error" });
@@ -183,25 +194,50 @@ export default function TimeClockPage() {
   const status: Status = entry?.status ?? null;
 
   const buttons: { action: Action; label: string; emoji: string; color: string; disabled: boolean }[] = [
-    { action: "check-in",  label: "CHECK IN",  emoji: "🟢", color: "btn-checkin",  disabled: status !== null },
-    { action: "break-in",  label: "BREAK",     emoji: "☕", color: "btn-break",    disabled: status !== "checked-in" && status !== "returned" },
-    { action: "break-out", label: "RETURN",    emoji: "🔄", color: "btn-return",   disabled: status !== "on-break" },
-    { action: "check-out", label: "CHECK OUT", emoji: "🔴", color: "btn-checkout", disabled: status === null || status === "on-break" || status === "checked-out" },
+    {
+      action: "check-in",
+      label: "CHECK IN",
+      emoji: "🟢",
+      color: "btn-checkin",
+      disabled: status !== null,
+    },
+    {
+      action: "break-in",
+      label: "BREAK",
+      emoji: "☕",
+      color: "btn-break",
+      // ✅ can start a break from checked-in OR returned (multiple breaks)
+      disabled: status !== "checked-in" && status !== "returned",
+    },
+    {
+      action: "break-out",
+      label: "RETURN",
+      emoji: "🔄",
+      color: "btn-return",
+      disabled: status !== "on-break",
+    },
+    {
+      action: "check-out",
+      label: "CHECK OUT",
+      emoji: "🔴",
+      color: "btn-checkout",
+      disabled: status === null || status === "on-break" || status === "checked-out",
+    },
   ];
 
   const statusLabels: Record<NonNullable<Status>, string> = {
-    "checked-in":  "🟢 WORKING",
-    "on-break":    "☕ ON BREAK",
-    returned:      "🔄 RETURNED",
+    "checked-in": "🟢 WORKING",
+    "on-break": "☕ ON BREAK",
+    returned: "🔄 RETURNED",
     "checked-out": "🔴 CHECKED OUT",
   };
 
   const today = currentTime.toLocaleDateString("en-US", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
-
-  // Whether to show the live pulse indicator on totals
-  const isLive = status === "checked-in" || status === "on-break" || status === "returned";
 
   return (
     <>
@@ -231,7 +267,10 @@ export default function TimeClockPage() {
           padding: 40px 16px 80px;
         }
 
-        .header { text-align: center; margin-bottom: 48px; }
+        .header {
+          text-align: center;
+          margin-bottom: 48px;
+        }
 
         .company-badge {
           display: inline-flex;
@@ -252,12 +291,6 @@ export default function TimeClockPage() {
         .dot { width: 6px; height: 6px; background: #00ff88; border-radius: 50%; animation: pulse 2s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
 
-        .logo-img {
-          width: 72px; height: 72px; object-fit: contain;
-          display: block; margin: 0 auto 16px;
-          filter: drop-shadow(0 0 12px rgba(0,255,136,0.3));
-        }
-
         h1 {
           font-family: 'Barlow Condensed', sans-serif;
           font-size: clamp(36px, 8vw, 72px);
@@ -267,11 +300,13 @@ export default function TimeClockPage() {
           line-height: 1;
           color: #fff;
         }
+
         h1 span { color: #00ff88; }
 
         .live-clock {
           font-family: 'Share Tech Mono', monospace;
           font-size: clamp(42px, 10vw, 88px);
+          font-weight: 400;
           color: #00ff88;
           letter-spacing: 4px;
           line-height: 1;
@@ -282,7 +317,9 @@ export default function TimeClockPage() {
 
         @keyframes flicker {
           0%, 95%, 100% { opacity: 1; }
-          96% { opacity: 0.92; } 97% { opacity: 1; } 98% { opacity: 0.95; }
+          96% { opacity: 0.92; }
+          97% { opacity: 1; }
+          98% { opacity: 0.95; }
         }
 
         .date-display {
@@ -342,6 +379,7 @@ export default function TimeClockPage() {
           background: rgba(0,255,136,0.05);
           box-shadow: 0 0 0 3px rgba(0,255,136,0.08);
         }
+
         .name-input.input-error {
           border-color: rgba(239,68,68,0.5);
           background: rgba(239,68,68,0.04);
@@ -355,35 +393,8 @@ export default function TimeClockPage() {
           letter-spacing: 0.5px;
         }
 
-        .check-status-btn {
-          width: 100%;
-          margin-top: 14px;
-          padding: 12px;
-          background: rgba(126,184,255,0.08);
-          border: 1px solid rgba(126,184,255,0.2);
-          border-radius: 6px;
-          color: #7eb8ff;
-          font-family: 'Share Tech Mono', monospace;
-          font-size: 12px;
-          letter-spacing: 2px;
-          text-transform: uppercase;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          transition: all 0.2s;
-          flex-direction: row;
-        }
-        .check-status-btn:hover:not(:disabled) {
-          background: rgba(126,184,255,0.15);
-          border-color: rgba(126,184,255,0.4);
-          box-shadow: 0 0 16px rgba(126,184,255,0.15);
-        }
-        .check-status-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
         .status-bar {
-          margin-top: 14px;
+          margin-top: 20px;
           padding: 12px 18px;
           border-radius: 6px;
           background: rgba(255,255,255,0.04);
@@ -399,6 +410,7 @@ export default function TimeClockPage() {
           font-size: 13px;
           letter-spacing: 1px;
         }
+
         .status-idle { color: #4b5563; }
 
         .buttons-grid {
@@ -428,22 +440,52 @@ export default function TimeClockPage() {
         }
 
         button .btn-emoji { font-size: 22px; }
-        button .btn-text  { font-size: 13px; letter-spacing: 2px; }
+        button .btn-text { font-size: 13px; letter-spacing: 2px; }
+
         button:active:not(:disabled) { transform: scale(0.97); }
-        button::after { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0); transition: background 0.15s; }
+
+        button::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: rgba(255,255,255,0);
+          transition: background 0.15s;
+        }
         button:hover:not(:disabled)::after { background: rgba(255,255,255,0.06); }
 
-        .btn-checkin  { background: rgba(0,200,80,0.15);   border: 1px solid rgba(0,255,100,0.3);   color: #00ff88; }
-        .btn-break    { background: rgba(250,180,0,0.12);  border: 1px solid rgba(250,180,0,0.3);   color: #fbbf24; }
-        .btn-return   { background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3);  color: #60a5fa; }
-        .btn-checkout { background: rgba(239,68,68,0.12);  border: 1px solid rgba(239,68,68,0.3);   color: #f87171; }
+        .btn-checkin {
+          background: rgba(0,200,80,0.15);
+          border: 1px solid rgba(0,255,100,0.3);
+          color: #00ff88;
+        }
+        .btn-checkin:not(:disabled):hover { box-shadow: 0 0 20px rgba(0,255,136,0.2); }
 
-        .btn-checkin:not(:disabled):hover  { box-shadow: 0 0 20px rgba(0,255,136,0.2); }
-        .btn-break:not(:disabled):hover    { box-shadow: 0 0 20px rgba(251,191,36,0.2); }
-        .btn-return:not(:disabled):hover   { box-shadow: 0 0 20px rgba(96,165,250,0.2); }
+        .btn-break {
+          background: rgba(250,180,0,0.12);
+          border: 1px solid rgba(250,180,0,0.3);
+          color: #fbbf24;
+        }
+        .btn-break:not(:disabled):hover { box-shadow: 0 0 20px rgba(251,191,36,0.2); }
+
+        .btn-return {
+          background: rgba(59,130,246,0.15);
+          border: 1px solid rgba(59,130,246,0.3);
+          color: #60a5fa;
+        }
+        .btn-return:not(:disabled):hover { box-shadow: 0 0 20px rgba(96,165,250,0.2); }
+
+        .btn-checkout {
+          background: rgba(239,68,68,0.12);
+          border: 1px solid rgba(239,68,68,0.3);
+          color: #f87171;
+        }
         .btn-checkout:not(:disabled):hover { box-shadow: 0 0 20px rgba(239,68,68,0.2); }
 
-        button:disabled { opacity: 0.2; cursor: not-allowed; filter: grayscale(0.5); }
+        button:disabled {
+          opacity: 0.2;
+          cursor: not-allowed;
+          filter: grayscale(0.5);
+        }
 
         .toast {
           margin-top: 20px;
@@ -454,11 +496,24 @@ export default function TimeClockPage() {
           letter-spacing: 0.5px;
           animation: slideIn 0.3s ease;
         }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
-        .toast-success { background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.25); color: #00ff88; }
-        .toast-error   { background: rgba(239,68,68,0.08);  border: 1px solid rgba(239,68,68,0.25);  color: #f87171; }
 
-        /* ── TIMELINE ── */
+        @keyframes slideIn {
+          from { opacity: 0; transform: translateY(-8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .toast-success {
+          background: rgba(0,255,136,0.08);
+          border: 1px solid rgba(0,255,136,0.25);
+          color: #00ff88;
+        }
+
+        .toast-error {
+          background: rgba(239,68,68,0.08);
+          border: 1px solid rgba(239,68,68,0.25);
+          color: #f87171;
+        }
+
         .timeline {
           margin-top: 28px;
           border-top: 1px solid rgba(255,255,255,0.06);
@@ -481,6 +536,7 @@ export default function TimeClockPage() {
           padding: 8px 0;
           border-bottom: 1px solid rgba(255,255,255,0.04);
         }
+
         .timeline-row:last-child { border-bottom: none; }
 
         .timeline-label {
@@ -497,7 +553,6 @@ export default function TimeClockPage() {
           color: #d1d5db;
         }
 
-        /* ── SUMMARY CHIPS ── */
         .summary-row {
           display: flex;
           gap: 10px;
@@ -509,19 +564,8 @@ export default function TimeClockPage() {
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.08);
           border-radius: 6px;
-          padding: 12px 8px 10px;
+          padding: 10px 8px;
           text-align: center;
-          position: relative;
-          overflow: hidden;
-          transition: border-color 0.3s;
-        }
-
-        /* Glow border when live */
-        .summary-chip.live-chip {
-          border-color: rgba(0,255,136,0.2);
-        }
-        .summary-chip.live-chip-amber {
-          border-color: rgba(251,191,36,0.25);
         }
 
         .summary-chip-label {
@@ -530,39 +574,19 @@ export default function TimeClockPage() {
           letter-spacing: 1.5px;
           color: #4b5563;
           text-transform: uppercase;
-          margin-bottom: 6px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 5px;
+          margin-bottom: 4px;
         }
 
         .summary-chip-value {
           font-family: 'Barlow Condensed', sans-serif;
-          font-size: 22px;
+          font-size: 20px;
           font-weight: 700;
           color: #00ff88;
-          line-height: 1;
-          letter-spacing: -0.5px;
-          transition: color 0.2s;
         }
 
         .summary-chip-value.amber { color: #fbbf24; }
-        .summary-chip-value.blue  { color: #60a5fa; }
+        .summary-chip-value.blue { color: #60a5fa; }
 
-        /* Live pulse dot inside chip label */
-        .live-dot-sm {
-          width: 5px;
-          height: 5px;
-          border-radius: 50%;
-          background: #00ff88;
-          display: inline-block;
-          animation: pulse 1.2s infinite;
-          flex-shrink: 0;
-        }
-        .live-dot-sm.amber { background: #fbbf24; }
-
-        /* Break blocks */
         .break-block {
           margin: 6px 0;
           border-left: 2px solid rgba(251,191,36,0.3);
@@ -579,7 +603,10 @@ export default function TimeClockPage() {
           opacity: 0.8;
         }
 
-        .timeline-row-indent { padding-left: 4px; }
+        .timeline-row-indent {
+          padding-left: 4px;
+        }
+
         .accent-amber { color: #fbbf24 !important; }
 
         .live-tag {
@@ -592,7 +619,8 @@ export default function TimeClockPage() {
 
         .loading-spinner {
           display: inline-block;
-          width: 14px; height: 14px;
+          width: 14px;
+          height: 14px;
           border: 2px solid currentColor;
           border-top-color: transparent;
           border-radius: 50%;
@@ -609,17 +637,113 @@ export default function TimeClockPage() {
           letter-spacing: 1.5px;
           color: #374151;
           text-transform: uppercase;
-          text-align: center;
         }
+
         .footer-link a { color: #4b5563; text-decoration: none; transition: color 0.2s; }
         .footer-link a:hover { color: #7eb8ff; }
+
+        /* ── ACTION MODAL ── */
+        .action-modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(10, 14, 20, 0.95);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          backdrop-filter: blur(8px);
+          animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        .action-modal {
+          background: rgba(255,255,255,0.05);
+          border: 2px solid rgba(0,255,136,0.3);
+          border-radius: 16px;
+          padding: 0;
+          max-width: 500px;
+          width: 90%;
+          overflow: hidden;
+          animation: slideUp 0.4s ease;
+          box-shadow: 0 20px 60px rgba(0,255,136,0.2);
+        }
+
+        @keyframes slideUp {
+          from { 
+            opacity: 0;
+            transform: translateY(30px) scale(0.95);
+          }
+          to { 
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        .action-modal-image {
+          width: 100%;
+          height: 280px;
+          object-fit: cover;
+          display: block;
+          border-bottom: 2px solid rgba(0,255,136,0.3);
+        }
+
+        .action-modal-content {
+          padding: 32px 28px;
+          text-align: center;
+        }
+
+        .action-modal-title {
+          font-family: 'Barlow Condensed', sans-serif;
+          font-size: 28px;
+          font-weight: 800;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          color: #00ff88;
+          margin-bottom: 12px;
+          text-shadow: 0 0 20px rgba(0,255,136,0.4);
+        }
+
+        .action-modal-message {
+          font-family: 'Barlow', sans-serif;
+          font-size: 18px;
+          color: #d1d5db;
+          line-height: 1.6;
+          margin-bottom: 24px;
+        }
+
+        .action-modal-close {
+          width: 100%;
+          padding: 12px;
+          background: rgba(0,255,136,0.1);
+          border: 1px solid rgba(0,255,136,0.3);
+          border-radius: 8px;
+          color: #00ff88;
+          font-family: 'Share Tech Mono', monospace;
+          font-size: 12px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .action-modal-close:hover {
+          background: rgba(0,255,136,0.2);
+          box-shadow: 0 0 16px rgba(0,255,136,0.3);
+        }
 
         @media (max-width: 480px) {
           .card { padding: 24px 20px; }
           .buttons-grid { gap: 8px; }
           button { padding: 14px 6px; }
           .live-clock { letter-spacing: 2px; }
-          .logo-img { width: 56px; height: 56px; }
+          .action-modal-image { height: 200px; }
+          .action-modal-content { padding: 24px 20px; }
+          .action-modal-title { font-size: 22px; }
+          .action-modal-message { font-size: 16px; }
         }
       `}</style>
 
@@ -629,17 +753,20 @@ export default function TimeClockPage() {
             <span className="dot" />
             EMPLOYEE TIME CLOCK
           </div>
-          <img src="/images/logov3.png" alt="Logo" className="logo-img" />
-          <h1>TIME<span>TRACK</span></h1>
+          <h1><span>CRIS</span>TIME<span>TRACK</span></h1>
           <div className="live-clock">
             {currentTime.toLocaleTimeString("en-US", {
-              hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
             })}
           </div>
           <div className="date-display">{today}</div>
         </div>
 
         <div className="card">
+          {/* Email field — primary identifier */}
           <div className="field-label">Your Email</div>
           <input
             className={`name-input${emailError ? " input-error" : ""}`}
@@ -653,6 +780,7 @@ export default function TimeClockPage() {
           />
           {emailError && <p className="field-error">{emailError}</p>}
 
+          {/* Name field */}
           <div className="field-label" style={{ marginTop: "16px" }}>Your Name</div>
           <input
             className="name-input"
@@ -711,62 +839,59 @@ export default function TimeClockPage() {
             <div className="timeline">
               <div className="timeline-title">Today&apos;s Log</div>
 
+              {/* Check In */}
               <div className="timeline-row">
                 <span className="timeline-label">🟢 Check In</span>
                 <span className="timeline-value">{formatTime(entry.checkIn)}</span>
               </div>
 
+              {/* Each break session */}
               {entry.breaks && entry.breaks.length > 0 && (
-                entry.breaks.map((b, i) => (
-                  <div key={b._id || i} className="break-block">
-                    <div className="break-block-header">Break #{i + 1}</div>
-                    <div className="timeline-row timeline-row-indent">
-                      <span className="timeline-label">☕ Start</span>
-                      <span className="timeline-value">{formatTime(b.breakIn)}</span>
-                    </div>
-                    <div className="timeline-row timeline-row-indent">
-                      <span className="timeline-label">🔄 End</span>
-                      <span className="timeline-value">
-                        {b.breakOut ? formatTime(b.breakOut) : <span className="live-tag">ON BREAK</span>}
-                      </span>
-                    </div>
-                    {b.duration > 0 && (
+                <>
+                  {entry.breaks.map((b, i) => (
+                    <div key={b._id || i} className="break-block">
+                      <div className="break-block-header">Break #{i + 1}</div>
                       <div className="timeline-row timeline-row-indent">
-                        <span className="timeline-label">⏱ Duration</span>
-                        <span className="timeline-value accent-amber">{formatMinutes(b.duration)}</span>
+                        <span className="timeline-label">☕ Start</span>
+                        <span className="timeline-value">{formatTime(b.breakIn)}</span>
                       </div>
-                    )}
-                  </div>
-                ))
+                      <div className="timeline-row timeline-row-indent">
+                        <span className="timeline-label">🔄 End</span>
+                        <span className="timeline-value">
+                          {b.breakOut ? formatTime(b.breakOut) : <span className="live-tag">ON BREAK</span>}
+                        </span>
+                      </div>
+                      {b.duration > 0 && (
+                        <div className="timeline-row timeline-row-indent">
+                          <span className="timeline-label">⏱ Duration</span>
+                          <span className="timeline-value accent-amber">{formatMinutes(b.duration)}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
               )}
 
+              {/* Check Out */}
               <div className="timeline-row">
                 <span className="timeline-label">🔴 Check Out</span>
                 <span className="timeline-value">{formatTime(entry.checkOut)}</span>
               </div>
 
-              {/* ── LIVE SUMMARY CHIPS ── */}
+              {/* Summary chips */}
               <div className="summary-row">
-                <div className={`summary-chip${isLive && status !== "on-break" ? " live-chip" : ""}`}>
-                  <div className="summary-chip-label">
-                    {isLive && status !== "on-break" && <span className="live-dot-sm" />}
-                    Hours Worked
-                  </div>
+                <div className="summary-chip">
+                  <div className="summary-chip-label">Hours Worked</div>
                   <div className="summary-chip-value">
-                    {liveTotals.workedMins > 0 ? formatMinutes(liveTotals.workedMins) : "—"}
+                    {entry.totalWorked > 0 ? formatMinutes(entry.totalWorked) : "—"}
                   </div>
                 </div>
-
-                <div className={`summary-chip${isLive && status === "on-break" ? " live-chip-amber" : ""}`}>
-                  <div className="summary-chip-label">
-                    {isLive && status === "on-break" && <span className="live-dot-sm amber" />}
-                    Total Break
-                  </div>
+                <div className="summary-chip">
+                  <div className="summary-chip-label">Total Break</div>
                   <div className="summary-chip-value amber">
-                    {liveTotals.breakMins > 0 ? formatMinutes(liveTotals.breakMins) : "—"}
+                    {entry.totalBreak > 0 ? formatMinutes(entry.totalBreak) : "—"}
                   </div>
                 </div>
-
                 <div className="summary-chip">
                   <div className="summary-chip-label">Breaks Taken</div>
                   <div className="summary-chip-value blue">
@@ -778,10 +903,45 @@ export default function TimeClockPage() {
           )}
         </div>
 
+        {/* Action Modal */}
+        {actionModal && (
+          <div className="action-modal-overlay" onClick={() => setActionModal(null)}>
+            <div className="action-modal" onClick={(e) => e.stopPropagation()}>
+              <img 
+                src={actionModal.image} 
+                alt={actionModal.action}
+                className="action-modal-image"
+                onError={(e) => {
+                  // Fallback if image doesn't exist
+                  e.currentTarget.src = "/images/logov3.png";
+                }}
+              />
+              <div className="action-modal-content">
+                <div className="action-modal-title">
+                  {actionModal.action === "check-in" && "✅ CHECKED IN!"}
+                  {actionModal.action === "break-in" && "☕ ON BREAK!"}
+                  {actionModal.action === "break-out" && "🔄 BACK TO WORK!"}
+                  {actionModal.action === "check-out" && "👋 CHECKED OUT!"}
+                </div>
+                <div className="action-modal-message">
+                  {actionModal.message}
+                </div>
+                <button 
+                  className="action-modal-close"
+                  onClick={() => setActionModal(null)}
+                >
+                  ✕ CLOSE
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="footer-link">
           Admin?{" "}
           <a href="/login">Login to view all records →</a>
           <p>Crafted by Nikko with coffee and love ☕</p>
+          <p>A gift from nikko to nationgraph family under OM mirah cluster lead by:TL Cris Arandilla</p>
         </div>
       </div>
     </>
