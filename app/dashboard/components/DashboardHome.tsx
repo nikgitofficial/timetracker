@@ -959,6 +959,26 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
           text-transform: uppercase;
           margin-top: 10px;
         }
+          .btn-analytics {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #eff6ff;
+  border: 1.5px solid #93c5fd;
+  color: #1d4ed8;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.15s;
+  box-shadow: var(--shadow);
+  flex-shrink: 0;
+}
+.btn-analytics:hover { background: #dbeafe; border-color: #60a5fa; }
       `}</style>
 
       <div className="dh-wrap">
@@ -990,6 +1010,7 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                 ? <><span className="export-spinner" /> Exporting…</>
                 : <>↓ PDF</>}
             </button>
+            <a href="/dashboard/analytics" className="btn-analytics">📊 Analytics</a>
             <a href="/" className="btn-timeclock">⏱ Time Clock</a>
           </div>
         </div>
