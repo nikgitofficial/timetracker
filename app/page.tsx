@@ -81,7 +81,7 @@ export default function TimeClockPage() {
       images: ["/images/break1.jpg", "/images/break2.jpg"],
       messages: [
         "Quick bio break! Don't be too long ha! 🚻",
-        "Nature calls! Back in a jiffy langga! 💨"
+        "Nature calls! Back in a work! 💨"
       ]
     },
     "bio-break-out": {
