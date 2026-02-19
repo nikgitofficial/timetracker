@@ -705,7 +705,7 @@ export default function DashboardSPA() {
           <div className="sidebar-header">
             <div className="sidebar-logo">
               <img src="/images/logov3.png" alt="Logo" />
-              TIME<span style={{ color: "#22c55e" }}>TRACK</span>
+            <span style={{ color: "#22c55e" }}>CRIS</span>  TIME<span style={{ color: "#22c55e" }}>TRACK</span>
               <div className="sidebar-logo-dot" />
             </div>
 

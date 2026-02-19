@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 // ── TYPES ────────────────────────────────────────────────────────
@@ -19,9 +19,11 @@ interface TimeEntry {
   checkIn: string | null;
   checkOut: string | null;
   breaks: BreakSession[];
+  bioBreaks: BreakSession[];
   totalWorked: number;
   totalBreak: number;
-  status: "checked-in" | "on-break" | "returned" | "checked-out";
+  totalBioBreak: number;
+  status: "checked-in" | "on-break" | "on-bio-break" | "returned" | "checked-out";
 }
 
 // ── HELPERS ──────────────────────────────────────────────────────
@@ -46,22 +48,13 @@ function getLast7Days() {
   return days;
 }
 
-function dayLabel(iso: string) {
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 function checkInHour(iso: string | null): number | null {
   if (!iso) return null;
   return new Date(iso).getHours() + new Date(iso).getMinutes() / 60;
 }
 
-// ── TINY SVG CHART COMPONENTS ────────────────────────────────────
+// ── SVG CHART COMPONENTS ─────────────────────────────────────────
 
-/** Responsive bar chart drawn with SVG */
 function BarChart({
   data,
   color = "#16a34a",
@@ -85,7 +78,6 @@ function BarChart({
     <div className="chart-wrap">
       {label && <div className="chart-label">{label}</div>}
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "auto" }}>
-        {/* Y grid */}
         {[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const y = pad.top + chartH * (1 - t);
           return (
@@ -97,7 +89,6 @@ function BarChart({
             </g>
           );
         })}
-        {/* Bars */}
         {data.map((d, i) => {
           const x = pad.left + (i / data.length) * chartW + (chartW / data.length - barW) / 2;
           const barH = (d.y / max) * chartH;
@@ -124,7 +115,6 @@ function BarChart({
   );
 }
 
-/** Donut chart */
 function DonutChart({
   segments,
   total,
@@ -172,7 +162,6 @@ function DonutChart({
   );
 }
 
-/** Mini sparkline */
 function Sparkline({ data, color = "#16a34a" }: { data: number[]; color?: string }) {
   const max = Math.max(...data, 0.01);
   const min = Math.min(...data);
@@ -193,7 +182,6 @@ function Sparkline({ data, color = "#16a34a" }: { data: number[]; color?: string
   );
 }
 
-/** Horizontal bar for employee comparison */
 function HBar({ value, max, color }: { value: number; max: number; color: string }) {
   const pct = max > 0 ? (value / max) * 100 : 0;
   return (
@@ -220,7 +208,6 @@ export default function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "employees" | "trends">("overview");
   const [dateRange, setDateRange] = useState<"7d" | "30d" | "all">("7d");
 
-  // Auth
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "include" })
       .then((r) => r.json())
@@ -231,7 +218,6 @@ export default function AnalyticsPage() {
       .catch(() => router.push("/login"));
   }, [router]);
 
-  // Fetch ALL records for analytics (higher limit)
   const fetchAll = useCallback(async () => {
     if (!user?.email) return;
     setLoading(true);
@@ -263,48 +249,74 @@ export default function AnalyticsPage() {
   const today = new Date().toISOString().split("T")[0];
   const last7 = getLast7Days();
 
-  // Daily totals (hours worked per day for last 7)
   const dailyWorked = last7.map((d) => {
     const dayRecs = records.filter((r) => r.date === d);
     const total = dayRecs.reduce((s, r) => s + (r.totalWorked || 0), 0);
     return { x: new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" }), y: toHours(total) };
   });
 
-  // Daily headcount (unique employees per day)
   const dailyHeadcount = last7.map((d) => {
     const names = new Set(records.filter((r) => r.date === d).map((r) => r.email));
     return { x: new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" }), y: names.size };
   });
 
-  // Daily avg break (minutes)
   const dailyBreak = last7.map((d) => {
     const dayRecs = records.filter((r) => r.date === d && r.totalBreak > 0);
     const avg = dayRecs.length ? dayRecs.reduce((s, r) => s + r.totalBreak, 0) / dayRecs.length : 0;
     return { x: new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" }), y: +(avg / 60).toFixed(2) };
   });
 
-  // Status distribution
+  // Bio break daily average
+  const dailyBioBreak = last7.map((d) => {
+    const dayRecs = records.filter((r) => r.date === d && (r.totalBioBreak || 0) > 0);
+    const avg = dayRecs.length ? dayRecs.reduce((s, r) => s + (r.totalBioBreak || 0), 0) / dayRecs.length : 0;
+    return { x: new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" }), y: +(avg / 60).toFixed(2) };
+  });
+
+  // Status distribution — now includes on-bio-break
   const todayRecs = records.filter((r) => r.date === today);
   const statusCounts = {
     "checked-in": todayRecs.filter((r) => r.status === "checked-in").length,
     "on-break": todayRecs.filter((r) => r.status === "on-break").length,
+    "on-bio-break": todayRecs.filter((r) => r.status === "on-bio-break").length,
     "returned": todayRecs.filter((r) => r.status === "returned").length,
     "checked-out": todayRecs.filter((r) => r.status === "checked-out").length,
   };
   const todayTotal = todayRecs.length;
 
-  // Employee leaderboard (total hours worked in range)
-  const empMap: Record<string, { name: string; email: string; worked: number; days: Set<string>; breaks: number }> = {};
+  // Employee leaderboard — now includes bio break data
+  const empMap: Record<string, {
+    name: string;
+    email: string;
+    worked: number;
+    days: Set<string>;
+    breaks: number;
+    bioBreaks: number;
+    totalBioBreak: number;
+  }> = {};
+
   records.forEach((r) => {
-    if (!empMap[r.email]) empMap[r.email] = { name: r.employeeName, email: r.email, worked: 0, days: new Set(), breaks: 0 };
+    if (!empMap[r.email]) {
+      empMap[r.email] = {
+        name: r.employeeName,
+        email: r.email,
+        worked: 0,
+        days: new Set(),
+        breaks: 0,
+        bioBreaks: 0,
+        totalBioBreak: 0,
+      };
+    }
     empMap[r.email].worked += r.totalWorked || 0;
     empMap[r.email].days.add(r.date);
     empMap[r.email].breaks += r.breaks?.length || 0;
+    empMap[r.email].bioBreaks += r.bioBreaks?.length || 0;
+    empMap[r.email].totalBioBreak += r.totalBioBreak || 0;
   });
+
   const employees = Object.values(empMap).sort((a, b) => b.worked - a.worked);
   const maxWorked = employees[0]?.worked || 1;
 
-  // Check-in time distribution (hour buckets)
   const hourBuckets: number[] = Array(24).fill(0);
   records.forEach((r) => {
     const h = checkInHour(r.checkIn);
@@ -312,16 +324,16 @@ export default function AnalyticsPage() {
   });
   const peakHour = hourBuckets.indexOf(Math.max(...hourBuckets));
 
-  // Avg hours/day per employee
   const avgHoursPerEmployee = employees.length
     ? employees.reduce((s, e) => s + (e.days.size > 0 ? e.worked / e.days.size : 0), 0) / employees.length
     : 0;
 
-  // Total worked this range
   const totalWorkedMins = records.reduce((s, r) => s + (r.totalWorked || 0), 0);
   const totalBreakMins = records.reduce((s, r) => s + (r.totalBreak || 0), 0);
+  const totalBioBreakMins = records.reduce((s, r) => s + (r.totalBioBreak || 0), 0);
+  const totalBreakSessions = records.reduce((s, r) => s + (r.breaks?.length || 0), 0);
+  const totalBioBreakSessions = records.reduce((s, r) => s + (r.bioBreaks?.length || 0), 0);
 
-  // Sparkline for each employee (worked hours per day last 7)
   function empSparkline(email: string) {
     return last7.map((d) => {
       const r = records.find((r) => r.date === d && r.email === email);
@@ -329,11 +341,13 @@ export default function AnalyticsPage() {
     });
   }
 
-  // Check-in time bars (6am–8pm)
   const checkInBars = Array.from({ length: 15 }, (_, i) => ({
     x: `${i + 6}:00`,
     y: hourBuckets[i + 6],
   }));
+
+  // Most bio breaks employee
+  const mostBioBreaksEmp = [...employees].sort((a, b) => b.bioBreaks - a.bioBreaks)[0];
 
   return (
     <>
@@ -354,465 +368,198 @@ export default function AnalyticsPage() {
           --green: #16a34a;
           --amber: #d97706;
           --blue: #2563eb;
+          --teal: #0d9488;
           --red: #dc2626;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #f7f5f2; color: var(--text); font-family: 'DM Mono', monospace; }
 
-        body {
-          background: #f7f5f2;
-          color: var(--text);
-          font-family: 'DM Mono', monospace;
-        }
-
-        /* ── LAYOUT ── */
-        .an-wrap {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 28px 20px 80px;
-          min-height: 100vh;
-        }
-
+        .an-wrap { max-width: 1200px; margin: 0 auto; padding: 28px 20px 80px; min-height: 100vh; }
         @media (min-width: 768px) { .an-wrap { padding: 32px 32px 60px; } }
 
-        /* ── TOP NAV ── */
         .an-topbar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 28px;
+          display: flex; align-items: center; justify-content: space-between;
+          flex-wrap: wrap; gap: 12px; margin-bottom: 28px;
         }
-
-        .an-brand {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
+        .an-brand { display: flex; align-items: center; gap: 10px; }
 
         .an-back {
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-          text-decoration: none;
-          font-family: 'DM Mono', monospace;
-          font-size: 10px;
-          letter-spacing: 1px;
-          text-transform: uppercase;
-          color: var(--text-light);
-          border: 1.5px solid var(--border);
-          border-radius: var(--radius-sm);
-          padding: 6px 12px;
-          background: var(--surface);
-          transition: all 0.15s;
-          box-shadow: var(--shadow);
+          display: inline-flex; align-items: center; gap: 5px;
+          text-decoration: none; font-family: 'DM Mono', monospace;
+          font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+          color: var(--text-light); border: 1.5px solid var(--border);
+          border-radius: var(--radius-sm); padding: 6px 12px;
+          background: var(--surface); transition: all 0.15s; box-shadow: var(--shadow);
         }
         .an-back:hover { color: var(--text); border-color: var(--border-strong); }
 
         .an-title {
           font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: clamp(22px, 4vw, 30px);
-          font-weight: 900;
-          letter-spacing: -0.8px;
-          color: var(--text);
-          line-height: 1;
+          font-size: clamp(22px, 4vw, 30px); font-weight: 900;
+          letter-spacing: -0.8px; color: var(--text); line-height: 1;
         }
-
         .an-title span { color: var(--green); }
+        .an-subtitle { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); margin-top: 3px; }
 
-        .an-subtitle {
-          font-size: 10px;
-          letter-spacing: 1.5px;
-          text-transform: uppercase;
-          color: var(--text-light);
-          margin-top: 3px;
-        }
+        .an-topbar-right { display: flex; align-items: center; gap: 8px; }
 
-        .an-topbar-right {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        /* ── DATE RANGE TOGGLE ── */
         .range-toggle {
-          display: inline-flex;
-          border: 1.5px solid var(--border);
-          border-radius: var(--radius-sm);
-          overflow: hidden;
-          background: var(--surface);
-          box-shadow: var(--shadow);
+          display: inline-flex; border: 1.5px solid var(--border);
+          border-radius: var(--radius-sm); overflow: hidden;
+          background: var(--surface); box-shadow: var(--shadow);
         }
-
         .range-btn {
-          padding: 6px 14px;
-          font-family: 'DM Mono', monospace;
-          font-size: 10px;
-          letter-spacing: 1px;
-          text-transform: uppercase;
-          background: transparent;
-          border: none;
-          cursor: pointer;
-          color: var(--text-light);
-          transition: all 0.15s;
+          padding: 6px 14px; font-family: 'DM Mono', monospace;
+          font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+          background: transparent; border: none; cursor: pointer;
+          color: var(--text-light); transition: all 0.15s;
           border-right: 1.5px solid var(--border);
         }
         .range-btn:last-child { border-right: none; }
-        .range-btn.active {
-          background: var(--text);
-          color: #fff;
-        }
+        .range-btn.active { background: var(--text); color: #fff; }
         .range-btn:hover:not(.active) { background: var(--surface-alt); color: var(--text); }
 
-        /* ── TABS ── */
         .an-tabs {
-          display: flex;
-          gap: 2px;
-          border-bottom: 2px solid var(--border);
-          margin-bottom: 24px;
+          display: flex; gap: 2px; border-bottom: 2px solid var(--border); margin-bottom: 24px;
         }
-
         .an-tab {
-          padding: 10px 20px;
-          font-family: 'DM Mono', monospace;
-          font-size: 11px;
-          letter-spacing: 1px;
-          text-transform: uppercase;
-          background: transparent;
-          border: none;
-          cursor: pointer;
-          color: var(--text-light);
-          border-bottom: 2px solid transparent;
-          margin-bottom: -2px;
-          transition: all 0.15s;
+          padding: 10px 20px; font-family: 'DM Mono', monospace;
+          font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+          background: transparent; border: none; cursor: pointer;
+          color: var(--text-light); border-bottom: 2px solid transparent;
+          margin-bottom: -2px; transition: all 0.15s;
         }
-        .an-tab.active {
-          color: var(--text);
-          border-bottom-color: var(--text);
-        }
+        .an-tab.active { color: var(--text); border-bottom-color: var(--text); }
         .an-tab:hover:not(.active) { color: var(--text-muted); }
 
-        /* ── KPI STRIP ── */
         .kpi-strip {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
-          margin-bottom: 20px;
+          display: grid; grid-template-columns: repeat(2, 1fr);
+          gap: 10px; margin-bottom: 20px;
         }
         @media (min-width: 640px) { .kpi-strip { grid-template-columns: repeat(4, 1fr); } }
 
         .kpi-card {
-          background: var(--surface);
-          border: 1.5px solid var(--border);
-          border-radius: var(--radius);
-          padding: 18px 18px 20px;
-          box-shadow: var(--shadow);
-          position: relative;
-          overflow: hidden;
+          background: var(--surface); border: 1.5px solid var(--border);
+          border-radius: var(--radius); padding: 18px 18px 20px;
+          box-shadow: var(--shadow); position: relative; overflow: hidden;
           transition: transform 0.15s;
         }
         .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-
         .kpi-card::after {
-          content: '';
-          position: absolute;
-          bottom: 0; left: 0; right: 0;
-          height: 3px;
+          content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
         }
         .kpi-card.k-green::after { background: var(--green); }
         .kpi-card.k-amber::after { background: var(--amber); }
         .kpi-card.k-blue::after  { background: var(--blue); }
+        .kpi-card.k-teal::after  { background: var(--teal); }
         .kpi-card.k-red::after   { background: var(--red); }
 
         .kpi-icon { font-size: 20px; margin-bottom: 8px; }
-
-        .kpi-label {
-          font-size: 9px;
-          letter-spacing: 1.5px;
-          text-transform: uppercase;
-          color: var(--text-light);
-          margin-bottom: 6px;
-        }
-
+        .kpi-label { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); margin-bottom: 6px; }
         .kpi-value {
           font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: clamp(24px, 3.5vw, 32px);
-          font-weight: 900;
-          letter-spacing: -1.5px;
-          color: var(--text);
-          line-height: 1;
+          font-size: clamp(24px, 3.5vw, 32px); font-weight: 900;
+          letter-spacing: -1.5px; color: var(--text); line-height: 1;
         }
-
         .kpi-card.k-green .kpi-value { color: var(--green); }
         .kpi-card.k-amber .kpi-value { color: var(--amber); }
         .kpi-card.k-blue  .kpi-value { color: var(--blue); }
+        .kpi-card.k-teal  .kpi-value { color: var(--teal); }
+        .kpi-sub { font-size: 10px; color: var(--text-light); margin-top: 4px; letter-spacing: 0.5px; }
 
-        .kpi-sub {
-          font-size: 10px;
-          color: var(--text-light);
-          margin-top: 4px;
-          letter-spacing: 0.5px;
-        }
-
-        /* ── GRID LAYOUTS ── */
-        .grid-2 {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 16px;
-          margin-bottom: 16px;
-        }
+        .grid-2 { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
         @media (min-width: 768px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
 
-        .grid-3 {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 16px;
-          margin-bottom: 16px;
-        }
+        .grid-3 { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
         @media (min-width: 900px) { .grid-3 { grid-template-columns: 2fr 1fr; } }
 
-        /* ── CHART CARDS ── */
         .chart-card {
-          background: var(--surface);
-          border: 1.5px solid var(--border);
-          border-radius: var(--radius);
-          padding: 20px 20px 16px;
-          box-shadow: var(--shadow);
+          background: var(--surface); border: 1.5px solid var(--border);
+          border-radius: var(--radius); padding: 20px 20px 16px; box-shadow: var(--shadow);
         }
-
         .chart-card-title {
-          font-family: 'DM Mono', monospace;
-          font-size: 10px;
-          letter-spacing: 1.5px;
-          text-transform: uppercase;
-          color: var(--text-muted);
-          margin-bottom: 16px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
+          font-family: 'DM Mono', monospace; font-size: 10px;
+          letter-spacing: 1.5px; text-transform: uppercase;
+          color: var(--text-muted); margin-bottom: 16px;
+          display: flex; align-items: center; gap: 8px;
         }
-
         .chart-card-title-icon { font-size: 14px; }
-
         .chart-wrap { width: 100%; }
-        .chart-label {
-          font-size: 9px;
-          letter-spacing: 1px;
-          text-transform: uppercase;
-          color: var(--text-light);
-          margin-bottom: 6px;
+        .chart-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-light); margin-bottom: 6px; }
+
+        /* Bio break badge */
+        .bio-tag {
+          display: inline-flex; align-items: center; gap: 3px;
+          background: #f0fdfa; border: 1px solid #99f6e4;
+          border-radius: 4px; padding: 1px 6px;
+          font-family: 'DM Mono', monospace; font-size: 9px;
+          color: #0f766e; font-weight: 600; letter-spacing: 0.3px;
         }
 
         /* ── DONUT SECTION ── */
-        .donut-section {
-          display: flex;
-          align-items: center;
-          gap: 24px;
-          flex-wrap: wrap;
-        }
-
+        .donut-section { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
         .donut-legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 10px; }
+        .legend-item { display: flex; align-items: center; gap: 10px; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .legend-label { font-size: 11px; color: var(--text-muted); flex: 1; }
+        .legend-count { font-family: 'Cabinet Grotesk', sans-serif; font-size: 16px; font-weight: 900; color: var(--text); letter-spacing: -0.5px; }
+        .legend-pct { font-size: 10px; color: var(--text-light); }
 
-        .legend-item {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .legend-dot {
-          width: 10px; height: 10px;
-          border-radius: 50%;
-          flex-shrink: 0;
-        }
-
-        .legend-label {
-          font-size: 11px;
-          color: var(--text-muted);
-          flex: 1;
-        }
-
-        .legend-count {
-          font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: 16px;
-          font-weight: 900;
-          color: var(--text);
-          letter-spacing: -0.5px;
-        }
-
-        .legend-pct {
-          font-size: 10px;
-          color: var(--text-light);
-        }
-
-        /* ── EMPLOYEE LEADERBOARD ── */
+        /* ── EMPLOYEE LIST ── */
         .emp-list { display: flex; flex-direction: column; gap: 14px; }
-
-        .emp-row {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
+        .emp-row { display: flex; align-items: center; gap: 12px; }
         .emp-rank {
-          font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: 16px;
-          font-weight: 900;
-          color: var(--border-strong);
-          width: 24px;
-          text-align: center;
-          flex-shrink: 0;
+          font-family: 'Cabinet Grotesk', sans-serif; font-size: 16px;
+          font-weight: 900; color: var(--border-strong);
+          width: 24px; text-align: center; flex-shrink: 0;
         }
         .emp-row:first-child .emp-rank { color: #d97706; }
         .emp-row:nth-child(2) .emp-rank { color: #78716c; }
         .emp-row:nth-child(3) .emp-rank { color: #92400e; }
-
         .emp-info { flex: 1; min-width: 0; }
-
         .emp-name {
-          font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: 14px;
-          font-weight: 700;
-          color: var(--text);
-          letter-spacing: -0.3px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          font-family: 'Cabinet Grotesk', sans-serif; font-size: 14px;
+          font-weight: 700; color: var(--text); letter-spacing: -0.3px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-
-        .emp-meta {
-          font-size: 10px;
-          color: var(--text-light);
-          letter-spacing: 0.5px;
-          margin-top: 2px;
-        }
-
+        .emp-meta { font-size: 10px; color: var(--text-light); letter-spacing: 0.5px; margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
         .emp-bar-wrap { flex: 1; }
-
         .emp-hours {
-          font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: 15px;
-          font-weight: 900;
-          color: var(--green);
-          letter-spacing: -0.5px;
-          flex-shrink: 0;
-          width: 54px;
-          text-align: right;
+          font-family: 'Cabinet Grotesk', sans-serif; font-size: 15px;
+          font-weight: 900; color: var(--green); letter-spacing: -0.5px;
+          flex-shrink: 0; width: 54px; text-align: right;
         }
-
         .emp-spark { flex-shrink: 0; }
 
-        /* ── PEAK HOUR HEATMAP ── */
-        .hour-grid {
-          display: grid;
-          grid-template-columns: repeat(8, 1fr);
-          gap: 4px;
-        }
+        /* ── HOUR HEATMAP ── */
+        .hour-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+        .hour-cell { border-radius: 4px; padding: 6px 2px; text-align: center; font-size: 8.5px; color: var(--text-light); transition: all 0.2s; position: relative; }
+        .hour-cell-label { font-size: 7.5px; color: var(--text-light); margin-bottom: 2px; font-family: 'DM Mono', monospace; }
+        .hour-cell-count { font-family: 'Cabinet Grotesk', sans-serif; font-size: 13px; font-weight: 900; color: var(--text); }
 
-        .hour-cell {
-          border-radius: 4px;
-          padding: 6px 2px;
-          text-align: center;
-          font-size: 8.5px;
-          color: var(--text-light);
-          transition: all 0.2s;
-          position: relative;
-        }
-
-        .hour-cell-label {
-          font-size: 7.5px;
-          color: var(--text-light);
-          margin-bottom: 2px;
-          font-family: 'DM Mono', monospace;
-        }
-
-        .hour-cell-count {
-          font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: 13px;
-          font-weight: 900;
-          color: var(--text);
-        }
-
-        /* ── INSIGHT PILLS ── */
-        .insights-row {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-bottom: 16px;
-        }
-
+        /* ── INSIGHTS ── */
+        .insights-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
         .insight-pill {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background: var(--surface);
-          border: 1.5px solid var(--border);
-          border-radius: 8px;
-          padding: 10px 14px;
-          box-shadow: var(--shadow);
-          flex: 1;
-          min-width: 180px;
+          display: flex; align-items: center; gap: 8px;
+          background: var(--surface); border: 1.5px solid var(--border);
+          border-radius: 8px; padding: 10px 14px; box-shadow: var(--shadow);
+          flex: 1; min-width: 160px;
         }
-
         .insight-icon { font-size: 18px; }
-
         .insight-text { flex: 1; }
+        .insight-title { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); }
+        .insight-val { font-family: 'Cabinet Grotesk', sans-serif; font-size: 16px; font-weight: 900; color: var(--text); letter-spacing: -0.5px; }
 
-        .insight-title {
-          font-size: 9px;
-          letter-spacing: 1.5px;
-          text-transform: uppercase;
-          color: var(--text-light);
-        }
-
-        .insight-val {
-          font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: 16px;
-          font-weight: 900;
-          color: var(--text);
-          letter-spacing: -0.5px;
-        }
-
-        /* ── LOADING / EMPTY ── */
-        .an-loading {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 80px 24px;
-          gap: 14px;
-        }
-
+        /* ── LOADING ── */
+        .an-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px; gap: 14px; }
         .loading-dots { display: inline-flex; gap: 6px; }
-        .loading-dots span {
-          width: 8px; height: 8px;
-          background: var(--border-strong);
-          border-radius: 50%;
-          animation: ld 0.8s infinite;
-        }
+        .loading-dots span { width: 8px; height: 8px; background: var(--border-strong); border-radius: 50%; animation: ld 0.8s infinite; }
         .loading-dots span:nth-child(2) { animation-delay: 0.15s; }
         .loading-dots span:nth-child(3) { animation-delay: 0.30s; }
-        @keyframes ld {
-          0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
-          40%            { transform: scale(1);   opacity: 1;   }
-        }
+        @keyframes ld { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; } 40% { transform: scale(1); opacity: 1; } }
+        .loading-text { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-light); }
 
-        .loading-text {
-          font-size: 10px;
-          letter-spacing: 2px;
-          text-transform: uppercase;
-          color: var(--text-light);
-        }
-
-        /* ── DIVIDER ── */
-        .section-divider {
-          height: 1.5px;
-          background: var(--border);
-          border-radius: 2px;
-          margin: 6px 0 16px;
-        }
-
-        /* ── RESPONSIVE TWEAKS ── */
         @media (max-width: 500px) {
           .range-btn { padding: 6px 10px; font-size: 9px; }
           .an-tab { padding: 8px 12px; font-size: 10px; }
@@ -860,7 +607,6 @@ export default function AnalyticsPage() {
             {/* ── OVERVIEW TAB ── */}
             {activeTab === "overview" && (
               <>
-                {/* KPI Strip */}
                 <div className="kpi-strip">
                   <div className="kpi-card k-green">
                     <div className="kpi-icon">⏱</div>
@@ -872,13 +618,13 @@ export default function AnalyticsPage() {
                     <div className="kpi-icon">☕</div>
                     <div className="kpi-label">Total Break Time</div>
                     <div className="kpi-value">{fmtMins(totalBreakMins)}</div>
-                    <div className="kpi-sub">{records.reduce((s, r) => s + (r.breaks?.length || 0), 0)} sessions</div>
+                    <div className="kpi-sub">{totalBreakSessions} sessions</div>
                   </div>
-                  <div className="kpi-card k-blue">
-                    <div className="kpi-icon">👥</div>
-                    <div className="kpi-label">Unique Employees</div>
-                    <div className="kpi-value">{employees.length}</div>
-                    <div className="kpi-sub">tracked in range</div>
+                  <div className="kpi-card k-teal">
+                    <div className="kpi-icon">🚻</div>
+                    <div className="kpi-label">Total Bio Break</div>
+                    <div className="kpi-value">{fmtMins(totalBioBreakMins)}</div>
+                    <div className="kpi-sub">{totalBioBreakSessions} sessions</div>
                   </div>
                   <div className="kpi-card k-red">
                     <div className="kpi-icon">🕐</div>
@@ -888,7 +634,7 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
 
-                {/* AI Insights Row */}
+                {/* Insights */}
                 <div className="insights-row">
                   <div className="insight-pill">
                     <span className="insight-icon">📐</span>
@@ -905,14 +651,17 @@ export default function AnalyticsPage() {
                     </div>
                   </div>
                   <div className="insight-pill">
-                    <span className="insight-icon">📅</span>
+                    <span className="insight-icon">🚻</span>
                     <div className="insight-text">
-                      <div className="insight-title">Avg Daily Headcount</div>
-                      <div className="insight-val">
-                        {dailyHeadcount.filter((d) => d.y > 0).length > 0
-                          ? (dailyHeadcount.reduce((s, d) => s + d.y, 0) / (dailyHeadcount.filter((d) => d.y > 0).length || 1)).toFixed(1)
-                          : "—"}
-                      </div>
+                      <div className="insight-title">Avg Bio Break / Shift</div>
+                      <div className="insight-val">{records.length ? fmtMins(Math.round(totalBioBreakMins / records.length)) : "—"}</div>
+                    </div>
+                  </div>
+                  <div className="insight-pill">
+                    <span className="insight-icon">👥</span>
+                    <div className="insight-text">
+                      <div className="insight-title">Unique Employees</div>
+                      <div className="insight-val">{employees.length}</div>
                     </div>
                   </div>
                   <div className="insight-pill">
@@ -942,20 +691,18 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
 
-                {/* Donut + Peak Hour */}
+                {/* Donut + Heatmap */}
                 <div className="grid-3">
                   <div className="chart-card">
                     <div className="chart-card-title">
                       <span className="chart-card-title-icon">🕐</span>
-                      Check-in Time Heatmap (Today's Range)
+                      Check-in Time Heatmap
                     </div>
                     <div className="hour-grid">
                       {checkInBars.map((b, i) => {
                         const max = Math.max(...checkInBars.map((x) => x.y), 1);
                         const intensity = b.y / max;
-                        const bg = intensity === 0
-                          ? "#f5f4f1"
-                          : `rgba(22,163,74,${0.1 + intensity * 0.85})`;
+                        const bg = intensity === 0 ? "#f5f4f1" : `rgba(22,163,74,${0.1 + intensity * 0.85})`;
                         return (
                           <div key={i} className="hour-cell" style={{ background: bg }}>
                             <div className="hour-cell-label">{b.x}</div>
@@ -967,6 +714,7 @@ export default function AnalyticsPage() {
                       })}
                     </div>
                   </div>
+
                   <div className="chart-card">
                     <div className="chart-card-title">
                       <span className="chart-card-title-icon">🟢</span>
@@ -976,10 +724,11 @@ export default function AnalyticsPage() {
                       <div style={{ width: 130, flexShrink: 0 }}>
                         <DonutChart
                           segments={[
-                            { label: "Working", value: statusCounts["checked-in"], color: "#16a34a" },
-                            { label: "On Break", value: statusCounts["on-break"], color: "#d97706" },
-                            { label: "Returned", value: statusCounts["returned"], color: "#2563eb" },
-                            { label: "Done", value: statusCounts["checked-out"], color: "#e8e6e1" },
+                            { label: "Working",  value: statusCounts["checked-in"],   color: "#16a34a" },
+                            { label: "On Break", value: statusCounts["on-break"],     color: "#d97706" },
+                            { label: "Bio Break",value: statusCounts["on-bio-break"], color: "#0d9488" },
+                            { label: "Returned", value: statusCounts["returned"],     color: "#2563eb" },
+                            { label: "Done",     value: statusCounts["checked-out"],  color: "#e8e6e1" },
                           ]}
                           total={todayTotal || 1}
                           centerLabel={String(todayTotal)}
@@ -987,10 +736,11 @@ export default function AnalyticsPage() {
                       </div>
                       <div className="donut-legend">
                         {[
-                          { label: "Working", value: statusCounts["checked-in"], color: "#16a34a" },
-                          { label: "On Break", value: statusCounts["on-break"], color: "#d97706" },
-                          { label: "Returned", value: statusCounts["returned"], color: "#2563eb" },
-                          { label: "Done", value: statusCounts["checked-out"], color: "#a8a29e" },
+                          { label: "Working",   value: statusCounts["checked-in"],   color: "#16a34a" },
+                          { label: "On Break",  value: statusCounts["on-break"],     color: "#d97706" },
+                          { label: "Bio Break", value: statusCounts["on-bio-break"], color: "#0d9488" },
+                          { label: "Returned",  value: statusCounts["returned"],     color: "#2563eb" },
+                          { label: "Done",      value: statusCounts["checked-out"],  color: "#a8a29e" },
                         ].map((s) => (
                           <div key={s.label} className="legend-item">
                             <div className="legend-dot" style={{ background: s.color }} />
@@ -1027,20 +777,20 @@ export default function AnalyticsPage() {
                     <div className="kpi-sub">per day average</div>
                   </div>
                   <div className="kpi-card k-amber">
-                    <div className="kpi-icon">🔢</div>
-                    <div className="kpi-label">Most Active Day</div>
-                    <div className="kpi-value" style={{ fontSize: "clamp(16px, 3vw, 22px)" }}>
-                      {dailyHeadcount.reduce((best, d) => d.y > best.y ? d : best, { x: "—", y: 0 }).x}
-                    </div>
-                    <div className="kpi-sub">{Math.max(...dailyHeadcount.map(d => d.y))} employees</div>
-                  </div>
-                  <div className="kpi-card k-red">
                     <div className="kpi-icon">☕</div>
-                    <div className="kpi-label">Most Break Sessions</div>
+                    <div className="kpi-label">Most Breaks</div>
                     <div className="kpi-value" style={{ fontSize: "clamp(16px, 3vw, 22px)", letterSpacing: "-0.5px" }}>
-                      {employees.sort((a, b) => b.breaks - a.breaks)[0]?.name.split(" ")[0] || "—"}
+                      {[...employees].sort((a, b) => b.breaks - a.breaks)[0]?.name.split(" ")[0] || "—"}
                     </div>
-                    <div className="kpi-sub">{employees[0]?.breaks || 0} sessions</div>
+                    <div className="kpi-sub">{[...employees].sort((a, b) => b.breaks - a.breaks)[0]?.breaks || 0} sessions</div>
+                  </div>
+                  <div className="kpi-card k-teal">
+                    <div className="kpi-icon">🚻</div>
+                    <div className="kpi-label">Most Bio Breaks</div>
+                    <div className="kpi-value" style={{ fontSize: "clamp(16px, 3vw, 22px)", letterSpacing: "-0.5px" }}>
+                      {mostBioBreaksEmp?.name.split(" ")[0] || "—"}
+                    </div>
+                    <div className="kpi-sub">{mostBioBreaksEmp?.bioBreaks || 0} sessions</div>
                   </div>
                 </div>
 
@@ -1058,7 +808,17 @@ export default function AnalyticsPage() {
                           <span className="emp-rank">#{i + 1}</span>
                           <div className="emp-info">
                             <div className="emp-name">{e.name}</div>
-                            <div className="emp-meta">{e.days.size} day{e.days.size !== 1 ? "s" : ""} · {e.breaks} break{e.breaks !== 1 ? "s" : ""}</div>
+                            <div className="emp-meta">
+                              <span>{e.days.size} day{e.days.size !== 1 ? "s" : ""}</span>
+                              <span>·</span>
+                              <span>{e.breaks} break{e.breaks !== 1 ? "s" : ""}</span>
+                              {e.bioBreaks > 0 && (
+                                <>
+                                  <span>·</span>
+                                  <span className="bio-tag">🚻 {e.bioBreaks} bio</span>
+                                </>
+                              )}
+                            </div>
                             <div style={{ marginTop: 6 }}>
                               <HBar value={e.worked} max={maxWorked} color={i === 0 ? "#d97706" : "#16a34a"} />
                             </div>
@@ -1073,7 +833,6 @@ export default function AnalyticsPage() {
                   )}
                 </div>
 
-                {/* Individual employee daily breakdown */}
                 {employees.length > 0 && (
                   <div className="chart-card">
                     <div className="chart-card-title">
@@ -1117,42 +876,64 @@ export default function AnalyticsPage() {
                     <div className="kpi-value">{fmtMins(Math.round(totalBreakMins / Math.max(last7.filter((d) => records.some((r) => r.date === d)).length, 1)))}</div>
                     <div className="kpi-sub">across active days</div>
                   </div>
-                  <div className="kpi-card k-blue">
-                    <div className="kpi-icon">🏁</div>
-                    <div className="kpi-label">Completion Rate</div>
-                    <div className="kpi-value">
-                      {records.length
-                        ? `${Math.round((records.filter(r => r.status === "checked-out").length / records.length) * 100)}%`
-                        : "—"}
-                    </div>
-                    <div className="kpi-sub">fully checked out</div>
+                  <div className="kpi-card k-teal">
+                    <div className="kpi-icon">🚻</div>
+                    <div className="kpi-label">Avg Daily Bio Break</div>
+                    <div className="kpi-value">{fmtMins(Math.round(totalBioBreakMins / Math.max(last7.filter((d) => records.some((r) => r.date === d)).length, 1)))}</div>
+                    <div className="kpi-sub">across active days</div>
                   </div>
                   <div className="kpi-card k-red">
                     <div className="kpi-icon">⚡</div>
                     <div className="kpi-label">Productivity Index</div>
                     <div className="kpi-value">
-                      {totalWorkedMins + totalBreakMins > 0
-                        ? `${Math.round((totalWorkedMins / (totalWorkedMins + totalBreakMins)) * 100)}%`
+                      {totalWorkedMins + totalBreakMins + totalBioBreakMins > 0
+                        ? `${Math.round((totalWorkedMins / (totalWorkedMins + totalBreakMins + totalBioBreakMins)) * 100)}%`
                         : "—"}
                     </div>
-                    <div className="kpi-sub">work vs break ratio</div>
+                    <div className="kpi-sub">work vs all breaks</div>
                   </div>
                 </div>
 
                 <div className="grid-2">
                   <div className="chart-card">
                     <div className="chart-card-title">
-                      <span className="chart-card-title-icon">📊</span>
+                      <span className="chart-card-title-icon">☕</span>
                       Daily Avg Break Duration (hrs)
                     </div>
                     <BarChart data={dailyBreak} color="#d97706" unit="h" />
                   </div>
                   <div className="chart-card">
                     <div className="chart-card-title">
+                      <span className="chart-card-title-icon">🚻</span>
+                      Daily Avg Bio Break Duration (hrs)
+                    </div>
+                    <BarChart data={dailyBioBreak} color="#0d9488" unit="h" />
+                  </div>
+                </div>
+
+                <div className="grid-2" style={{ marginBottom: 16 }}>
+                  <div className="chart-card">
+                    <div className="chart-card-title">
                       <span className="chart-card-title-icon">👥</span>
                       Daily Headcount Trend
                     </div>
                     <BarChart data={dailyHeadcount} color="#7c3aed" unit="" />
+                  </div>
+                  <div className="chart-card">
+                    <div className="chart-card-title">
+                      <span className="chart-card-title-icon">🏁</span>
+                      Completion Rate
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: 140, gap: 8 }}>
+                      <div style={{ fontFamily: "'Cabinet Grotesk', sans-serif", fontSize: 52, fontWeight: 900, letterSpacing: -2, color: "var(--green)", lineHeight: 1 }}>
+                        {records.length
+                          ? `${Math.round((records.filter(r => r.status === "checked-out").length / records.length) * 100)}%`
+                          : "—"}
+                      </div>
+                      <div style={{ fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: "var(--text-light)" }}>
+                        {records.filter(r => r.status === "checked-out").length} of {records.length} fully checked out
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -1174,11 +955,11 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
 
-                {/* Work vs Break stacked comparison */}
+                {/* Work vs Break vs Bio Break stacked */}
                 <div className="chart-card">
                   <div className="chart-card-title">
                     <span className="chart-card-title-icon">⚖️</span>
-                    Work vs Break — Daily Comparison (Last 7 Days)
+                    Work vs Break vs Bio Break — Daily (Last 7 Days)
                   </div>
                   <div style={{ overflowX: "auto" }}>
                     <svg viewBox="0 0 600 200" preserveAspectRatio="xMidYMid meet" style={{ width: "100%", minWidth: 320, height: "auto" }}>
@@ -1186,10 +967,10 @@ export default function AnalyticsPage() {
                         const dayRecs = records.filter((r) => r.date === d);
                         const worked = dayRecs.reduce((s, r) => s + (r.totalWorked || 0), 0);
                         const brk = dayRecs.reduce((s, r) => s + (r.totalBreak || 0), 0);
-                        const total = worked + brk;
+                        const bio = dayRecs.reduce((s, r) => s + (r.totalBioBreak || 0), 0);
                         const maxTotal = Math.max(...last7.map((dd) => {
                           const dr = records.filter((r) => r.date === dd);
-                          return dr.reduce((s, r) => s + (r.totalWorked || 0) + (r.totalBreak || 0), 0);
+                          return dr.reduce((s, r) => s + (r.totalWorked || 0) + (r.totalBreak || 0) + (r.totalBioBreak || 0), 0);
                         }), 60);
                         const W = 600; const H = 200;
                         const pad = { top: 16, right: 8, bottom: 44, left: 8 };
@@ -1197,13 +978,17 @@ export default function AnalyticsPage() {
                         const colW = (W - pad.left - pad.right) / last7.length;
                         const barW = colW * 0.55;
                         const x = pad.left + i * colW + (colW - barW) / 2;
-                        const workedH = total > 0 ? (worked / maxTotal) * chartH : 0;
-                        const brkH = total > 0 ? (brk / maxTotal) * chartH : 0;
+                        const workedH = (worked / maxTotal) * chartH;
+                        const brkH = (brk / maxTotal) * chartH;
+                        const bioH = (bio / maxTotal) * chartH;
                         const label = new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" });
+                        const totalH = workedH + brkH + bioH;
                         return (
                           <g key={d}>
-                            {/* Break bar (top) */}
-                            <rect x={x} y={pad.top + chartH - workedH - brkH} width={barW} height={brkH} fill="#fbbf24" rx="2" opacity="0.85" />
+                            {/* Bio bar (top) */}
+                            <rect x={x} y={pad.top + chartH - totalH} width={barW} height={bioH} fill="#0d9488" rx="2" opacity="0.85" />
+                            {/* Break bar (middle) */}
+                            <rect x={x} y={pad.top + chartH - workedH - brkH} width={barW} height={brkH} fill="#fbbf24" rx="0" opacity="0.85" />
                             {/* Worked bar (bottom) */}
                             <rect x={x} y={pad.top + chartH - workedH} width={barW} height={workedH} fill="#16a34a" rx="2" opacity="0.9" />
                             <text x={x + barW / 2} y={H - 26} textAnchor="middle" fontSize="9" fill="#78716c" fontFamily="DM Mono, monospace">
@@ -1212,11 +997,12 @@ export default function AnalyticsPage() {
                           </g>
                         );
                       })}
-                      {/* Legend */}
                       <rect x={16} y={176} width={10} height={10} fill="#16a34a" rx="2" />
                       <text x={30} y={185} fontSize="9" fill="#78716c" fontFamily="DM Mono, monospace">Work</text>
                       <rect x={72} y={176} width={10} height={10} fill="#fbbf24" rx="2" />
                       <text x={86} y={185} fontSize="9" fill="#78716c" fontFamily="DM Mono, monospace">Break</text>
+                      <rect x={128} y={176} width={10} height={10} fill="#0d9488" rx="2" />
+                      <text x={142} y={185} fontSize="9" fill="#78716c" fontFamily="DM Mono, monospace">Bio Break</text>
                     </svg>
                   </div>
                 </div>

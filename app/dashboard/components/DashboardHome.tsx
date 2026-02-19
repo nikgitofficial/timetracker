@@ -20,9 +20,11 @@ interface TimeEntry {
   breakOut: string | null;
   checkOut: string | null;
   breaks: BreakSession[];
+  bioBreaks: BreakSession[];
   totalWorked: number;
   totalBreak: number;
-  status: "checked-in" | "on-break" | "returned" | "checked-out";
+  totalBioBreak: number;
+  status: "checked-in" | "on-break" | "on-bio-break" | "returned" | "checked-out";
   createdAt: string;
 }
 
@@ -52,6 +54,7 @@ function fmtMins(mins: number) {
 const STATUS_STYLE: Record<string, string> = {
   "checked-in": "status-in",
   "on-break": "status-break",
+  "on-bio-break": "status-bio",
   returned: "status-returned",
   "checked-out": "status-out",
 };
@@ -59,6 +62,7 @@ const STATUS_STYLE: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   "checked-in": "Working",
   "on-break": "On Break",
+  "on-bio-break": "Bio Break",
   returned: "Returned",
   "checked-out": "Done",
 };
@@ -78,6 +82,12 @@ function buildExportRows(records: TimeEntry[]) {
           .join(" | ")
       : "—",
     "Total Break": fmtMins(r.totalBreak),
+    "Bio Break Sessions": r.bioBreaks?.length
+      ? r.bioBreaks
+          .map((b, i) => `#${i + 1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`)
+          .join(" | ")
+      : "—",
+    "Total Bio Break": fmtMins(r.totalBioBreak),
     "Total Worked": fmtMins(r.totalWorked),
     "Status": STATUS_LABEL[r.status] || r.status,
   }));
@@ -91,7 +101,7 @@ async function exportToExcel(records: TimeEntry[], filename = "time-records") {
   // Column widths
   ws["!cols"] = [
     { wch: 22 }, { wch: 28 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
-    { wch: 52 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+    { wch: 52 }, { wch: 12 }, { wch: 52 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
   ];
 
   const wb = XLSX.utils.book_new();
@@ -145,8 +155,9 @@ async function exportToPDF(records: TimeEntry[], filename = "time-records") {
     },
     columnStyles: {
       0: { fontStyle: "bold", textColor: [26, 25, 22] },
-      7: { textColor: [22, 163, 74], fontStyle: "bold" },
       6: { textColor: [217, 119, 6] },
+      8: { textColor: [15, 118, 110] },
+      9: { textColor: [22, 163, 74], fontStyle: "bold" },
     },
     margin: { left: 14, right: 14 },
   });
@@ -728,6 +739,8 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
         .status-in::before { background: #16a34a; }
         .status-break    { background: #fef3c7; color: #92400e; }
         .status-break::before { background: #d97706; animation: pulse-dot 1.5s infinite; }
+        .status-bio      { background: #ccfbf1; color: #0f766e; }
+        .status-bio::before { background: #14b8a6; animation: pulse-dot 1.5s infinite; }
         .status-returned { background: #dbeafe; color: #1d4ed8; }
         .status-returned::before { background: #2563eb; }
         .status-out      { background: var(--surface-alt); color: var(--text-muted); border: 1px solid var(--border); }
@@ -758,6 +771,22 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
         .break-num   { font-weight: 700; opacity: 0.6; margin-right: 2px; }
         .break-arrow { opacity: 0.35; }
         .break-dur   { margin-left: 3px; background: #fde68a; border-radius: 3px; padding: 0 4px; font-size: 9px; font-weight: 700; }
+
+        .bio-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 3px;
+          background: #f0fdfa;
+          border: 1px solid #99f6e4;
+          border-radius: 4px;
+          padding: 2px 6px;
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          color: #0f766e;
+          white-space: nowrap;
+        }
+
+        .bio-dur { margin-left: 3px; background: #99f6e4; border-radius: 3px; padding: 0 4px; font-size: 9px; font-weight: 700; }
 
         .live-dot { color: #f59e0b; animation: blink 1s infinite; font-size: 8px; }
 
@@ -1127,6 +1156,8 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                         <th>Check Out</th>
                         <th>Breaks</th>
                         <th>Break Total</th>
+                        <th>Bio Breaks</th>
+                        <th>Bio Total</th>
                         <th>Worked</th>
                         <th>Status</th>
                         <th></th>
@@ -1158,6 +1189,26 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                             )}
                           </td>
                           <td className="break-cell">{fmtMins(r.totalBreak)}</td>
+                          <td>
+                            {r.bioBreaks?.length > 0 ? (
+                              <div className="breaks-list">
+                                {r.bioBreaks.map((b, i) => (
+                                  <div key={b._id || i} className="bio-pill">
+                                    <span className="break-num">#{i + 1}</span>
+                                    <span>{fmt(b.breakIn)}</span>
+                                    <span className="break-arrow">→</span>
+                                    <span>{b.breakOut ? fmt(b.breakOut) : <span className="live-dot">●</span>}</span>
+                                    {b.duration > 0 && <span className="bio-dur">{fmtMins(b.duration)}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="time-cell">—</span>
+                            )}
+                          </td>
+                          <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "#0d9488" }}>
+                            {fmtMins(r.totalBioBreak)}
+                          </td>
                           <td className="worked-cell">{fmtMins(r.totalWorked)}</td>
                           <td>
                             <span className={`status-badge ${STATUS_STYLE[r.status] || ""}`}>
@@ -1212,6 +1263,10 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                               <span className="detail-val" style={{ color: "#d97706" }}>{fmtMins(r.totalBreak)}</span>
                             </div>
                             <div className="detail-item">
+                              <span className="detail-lbl">Bio Break</span>
+                              <span className="detail-val" style={{ color: "#0d9488" }}>{fmtMins(r.totalBioBreak)}</span>
+                            </div>
+                            <div className="detail-item">
                               <span className="detail-lbl">Worked</span>
                               <span className="detail-val" style={{ color: "#16a34a" }}>{fmtMins(r.totalWorked)}</span>
                             </div>
@@ -1230,6 +1285,22 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                                       <span className="break-arrow">→</span>
                                       <span>{b.breakOut ? fmt(b.breakOut) : <span className="live-dot">●</span>}</span>
                                       {b.duration > 0 && <span className="break-dur">{fmtMins(b.duration)}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {r.bioBreaks?.length > 0 && (
+                              <div className="detail-item" style={{ gridColumn: "1 / -1" }}>
+                                <span className="detail-lbl">Bio Break Sessions</span>
+                                <div className="breaks-list" style={{ marginTop: "4px" }}>
+                                  {r.bioBreaks.map((b, i) => (
+                                    <div key={b._id || i} className="bio-pill">
+                                      <span className="break-num">#{i + 1}</span>
+                                      <span>{fmt(b.breakIn)}</span>
+                                      <span className="break-arrow">→</span>
+                                      <span>{b.breakOut ? fmt(b.breakOut) : <span className="live-dot">●</span>}</span>
+                                      {b.duration > 0 && <span className="bio-dur">{fmtMins(b.duration)}</span>}
                                     </div>
                                   ))}
                                 </div>

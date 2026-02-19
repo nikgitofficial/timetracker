@@ -3,7 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import TimeEntry from "@/models/TimeEntry";
 
-type Action = "check-in" | "break-in" | "break-out" | "check-out";
+type Action = "check-in" | "break-in" | "break-out" | "bio-break-in" | "bio-break-out" | "check-out";
+
+function formatMinutes(mins: number): string {
+  if (!mins) return "0m";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,9 +31,8 @@ export async function POST(req: NextRequest) {
     const now = new Date();
     const today = now.toISOString().split("T")[0];
 
-    // ── CHECK IN ──────────────────────────────────────────────
+    // ── CHECK IN ─────────────────────────────────────────────────
     if (action === "check-in") {
-      // For check-in, look for ANY active shift in the last 24 hours
       const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       const existingActiveShift = await TimeEntry.findOne({
         email: normalizedEmail,
@@ -45,39 +51,36 @@ export async function POST(req: NextRequest) {
       const entry = await TimeEntry.create({
         employeeName: name,
         email: normalizedEmail,
-        date: today, // "shift start date" — the date they checked in
+        date: today,
         checkIn: now,
         breaks: [],
+        bioBreaks: [],
         status: "checked-in",
       });
 
-      return NextResponse.json({
-        message: `✅ ${name} checked in successfully`,
-        entry,
-        action: "check-in",
-      });
+      return NextResponse.json({ message: `✅ ${name} checked in successfully`, entry, action: "check-in" });
     }
 
-    // ✅ For ALL other actions (break/checkout), find the ACTIVE shift (even if it started yesterday)
+    // Find active shift for all other actions
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const entry = await TimeEntry.findOne({
       email: normalizedEmail,
       employeeName: name,
-      status: { $ne: "checked-out" }, // Find active shift
-      checkIn: { $gte: oneDayAgo },   // Within last 24 hours
-    }).sort({ checkIn: -1 }); // Most recent first
+      status: { $ne: "checked-out" },
+      checkIn: { $gte: oneDayAgo },
+    }).sort({ checkIn: -1 });
 
     if (!entry) {
-      return NextResponse.json(
-        { error: "No active shift found. Please check in first." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No active shift found. Please check in first." }, { status: 400 });
     }
 
-    // ── BREAK IN ──────────────────────────────────────────────
+    // ── BREAK IN (lunch / regular) ────────────────────────────────
     if (action === "break-in") {
       if (entry.status === "on-break") {
-        return NextResponse.json({ error: "Already on break" }, { status: 400 });
+        return NextResponse.json({ error: "Already on a break" }, { status: 400 });
+      }
+      if (entry.status === "on-bio-break") {
+        return NextResponse.json({ error: "Please end your bio break first" }, { status: 400 });
       }
       entry.breaks.push({ breakIn: now, breakOut: null, duration: 0 });
       entry.status = "on-break";
@@ -89,22 +92,18 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── BREAK OUT ─────────────────────────────────────────────
+    // ── BREAK OUT ─────────────────────────────────────────────────
     if (action === "break-out") {
       if (entry.status !== "on-break") {
-        return NextResponse.json({ error: "Not currently on break" }, { status: 400 });
+        return NextResponse.json({ error: "Not currently on a break" }, { status: 400 });
       }
-      const openBreak = entry.breaks
-        .slice()
-        .reverse()
-        .find((b: { breakIn: Date; breakOut: Date | null; duration: number }) => !b.breakOut);
-
+      const openBreak = entry.breaks.slice().reverse().find(
+        (b: { breakIn: Date; breakOut: Date | null; duration: number }) => !b.breakOut
+      );
       if (!openBreak) {
         return NextResponse.json({ error: "No open break session found" }, { status: 400 });
       }
-      const breakMins = Math.round(
-        (now.getTime() - new Date(openBreak.breakIn).getTime()) / 60000
-      );
+      const breakMins = Math.round((now.getTime() - new Date(openBreak.breakIn).getTime()) / 60000);
       openBreak.breakOut = now;
       openBreak.duration = breakMins;
       entry.totalBreak = entry.breaks.reduce(
@@ -114,31 +113,82 @@ export async function POST(req: NextRequest) {
       entry.markModified("breaks");
       await entry.save();
       return NextResponse.json({
-        message: `🔄 Returned from break #${entry.breaks.length} — break was ${formatMinutes(breakMins)}`,
+        message: `🔄 Returned from break #${entry.breaks.length} — ${formatMinutes(breakMins)}`,
         entry,
         action: "break-out",
       });
     }
 
-    // ── CHECK OUT ─────────────────────────────────────────────
+    // ── BIO BREAK IN (CR, water, quick personal) ──────────────────
+    if (action === "bio-break-in") {
+      if (entry.status === "on-bio-break") {
+        return NextResponse.json({ error: "Already on a bio break" }, { status: 400 });
+      }
+      if (entry.status === "on-break") {
+        return NextResponse.json({ error: "Please end your break first" }, { status: 400 });
+      }
+      if (!entry.bioBreaks) entry.bioBreaks = [];
+      entry.bioBreaks.push({ breakIn: now, breakOut: null, duration: 0 });
+      entry.status = "on-bio-break";
+      entry.markModified("bioBreaks");
+      await entry.save();
+      return NextResponse.json({
+        message: `🚻 Bio break #${entry.bioBreaks.length} started`,
+        entry,
+        action: "bio-break-in",
+      });
+    }
+
+    // ── BIO BREAK OUT ─────────────────────────────────────────────
+    if (action === "bio-break-out") {
+      if (entry.status !== "on-bio-break") {
+        return NextResponse.json({ error: "Not currently on a bio break" }, { status: 400 });
+      }
+      const openBio = entry.bioBreaks.slice().reverse().find(
+        (b: { breakIn: Date; breakOut: Date | null; duration: number }) => !b.breakOut
+      );
+      if (!openBio) {
+        return NextResponse.json({ error: "No open bio break session found" }, { status: 400 });
+      }
+      const bioMins = Math.round((now.getTime() - new Date(openBio.breakIn).getTime()) / 60000);
+      openBio.breakOut = now;
+      openBio.duration = bioMins;
+      entry.totalBioBreak = entry.bioBreaks.reduce(
+        (sum: number, b: { duration: number }) => sum + (b.duration || 0), 0
+      );
+      entry.status = "returned";
+      entry.markModified("bioBreaks");
+      await entry.save();
+      return NextResponse.json({
+        message: `✅ Back from bio break #${entry.bioBreaks.length} — ${formatMinutes(bioMins)}`,
+        entry,
+        action: "bio-break-out",
+      });
+    }
+
+    // ── CHECK OUT ─────────────────────────────────────────────────
     if (action === "check-out") {
       if (entry.status === "on-break") {
         return NextResponse.json({ error: "Please end your break before checking out" }, { status: 400 });
+      }
+      if (entry.status === "on-bio-break") {
+        return NextResponse.json({ error: "Please end your bio break before checking out" }, { status: 400 });
       }
       entry.checkOut = now;
       entry.status = "checked-out";
       entry.totalBreak = entry.breaks.reduce(
         (sum: number, b: { duration: number }) => sum + (b.duration || 0), 0
       );
+      entry.totalBioBreak = (entry.bioBreaks || []).reduce(
+        (sum: number, b: { duration: number }) => sum + (b.duration || 0), 0
+      );
       if (entry.checkIn) {
-        const spanMins = Math.round(
-          (now.getTime() - new Date(entry.checkIn).getTime()) / 60000
-        );
-        entry.totalWorked = Math.max(0, spanMins - entry.totalBreak);
+        const spanMins = Math.round((now.getTime() - new Date(entry.checkIn).getTime()) / 60000);
+        entry.totalWorked = Math.max(0, spanMins - entry.totalBreak - entry.totalBioBreak);
       }
       await entry.save();
       return NextResponse.json({
-        message: `👋 ${name} checked out — worked ${formatMinutes(entry.totalWorked)}, ${entry.breaks.length} break(s) totalling ${formatMinutes(entry.totalBreak)}`,
+        message: `👋 ${name} checked out — worked ${formatMinutes(entry.totalWorked)}, ${entry.breaks.length} break(s) (${formatMinutes(entry.totalBreak)}), ${(entry.bioBreaks || []).length} bio break(s) (${formatMinutes(entry.totalBioBreak)})`,
         entry,
         action: "check-out",
       });
@@ -151,7 +201,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET — fetch active shift by EMAIL + NAME (even if it started yesterday)
+// GET — fetch active shift by EMAIL + NAME
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
@@ -160,7 +210,6 @@ export async function GET(req: NextRequest) {
     const name = searchParams.get("name")?.trim();
     if (!email || !name) return NextResponse.json({ entry: null });
 
-    // ✅ Find the most recent ACTIVE shift within last 24 hours
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const entry = await TimeEntry.findOne({
       email,
@@ -173,11 +222,4 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-}
-
-function formatMinutes(mins: number): string {
-  if (!mins) return "0m";
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }

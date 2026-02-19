@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 
-type Action = "check-in" | "break-in" | "break-out" | "check-out";
-type Status = "checked-in" | "on-break" | "returned" | "checked-out" | null;
+type Action = "check-in" | "break-in" | "break-out" | "bio-break-in" | "bio-break-out" | "check-out";
+type Status = "checked-in" | "on-break" | "on-bio-break" | "returned" | "checked-out" | null;
 
 interface BreakSession {
   _id: string;
@@ -19,8 +19,10 @@ interface TimeEntry {
   checkIn: string | null;
   checkOut: string | null;
   breaks: BreakSession[];
+  bioBreaks: BreakSession[];
   totalWorked: number;
   totalBreak: number;
+  totalBioBreak: number;
   status: Status;
 }
 
@@ -73,6 +75,20 @@ export default function TimeClockPage() {
       messages: [
         "Back to action! Let's finish strong baby! 💯",
         "Refreshed and ready! Let's go lannga ! ⚡"
+      ]
+    },
+    "bio-break-in": {
+      images: ["/images/break1.jpg", "/images/break2.jpg"],
+      messages: [
+        "Quick bio break! Don't be too long ha! 🚻",
+        "Nature calls! Back in a jiffy langga! 💨"
+      ]
+    },
+    "bio-break-out": {
+      images: ["/images/return1.jpg", "/images/return2.jpg"],
+      messages: [
+        "Back to the grind! 💪",
+        "Fresh and ready to go langga! ✅"
       ]
     },
     "check-out": {
@@ -181,7 +197,7 @@ export default function TimeClockPage() {
         const { image, message } = getActionContent(action);
         setActionModal({ action, image, message });
         
-        // Auto-close modal after 4 seconds
+        // Auto-close modal after 10 seconds
         setTimeout(() => setActionModal(null), 10000);
       }
     } catch {
@@ -217,17 +233,32 @@ export default function TimeClockPage() {
       disabled: status !== "on-break",
     },
     {
+      action: "bio-break-in",
+      label: "BIO BREAK",
+      emoji: "🚻",
+      color: "btn-bio",
+      disabled: status !== "checked-in" && status !== "returned",
+    },
+    {
+      action: "bio-break-out",
+      label: "END BIO",
+      emoji: "✅",
+      color: "btn-bio-return",
+      disabled: status !== "on-bio-break",
+    },
+    {
       action: "check-out",
       label: "CHECK OUT",
       emoji: "🔴",
       color: "btn-checkout",
-      disabled: status === null || status === "on-break" || status === "checked-out",
+      disabled: status === null || status === "on-break" || status === "on-bio-break" || status === "checked-out",
     },
   ];
 
   const statusLabels: Record<NonNullable<Status>, string> = {
     "checked-in": "🟢 WORKING",
     "on-break": "☕ ON BREAK",
+    "on-bio-break": "🚻 BIO BREAK",
     returned: "🔄 RETURNED",
     "checked-out": "🔴 CHECKED OUT",
   };
@@ -420,6 +451,31 @@ export default function TimeClockPage() {
           margin-top: 28px;
         }
 
+        /* ── Bio break section ── */
+        .bio-section-label {
+          font-family: 'Share Tech Mono', monospace;
+          font-size: 9px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          color: #374151;
+          margin: 16px 0 8px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .bio-section-label::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: rgba(255,255,255,0.06);
+        }
+
+        .bio-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+
         button {
           font-family: 'Barlow Condensed', sans-serif;
           font-weight: 700;
@@ -473,6 +529,20 @@ export default function TimeClockPage() {
           color: #60a5fa;
         }
         .btn-return:not(:disabled):hover { box-shadow: 0 0 20px rgba(96,165,250,0.2); }
+
+        .btn-bio {
+          background: rgba(20,184,166,0.15);
+          border: 1px solid rgba(20,184,166,0.35);
+          color: #2dd4bf;
+        }
+        .btn-bio:not(:disabled):hover { box-shadow: 0 0 20px rgba(20,184,166,0.2); }
+
+        .btn-bio-return {
+          background: rgba(99,102,241,0.15);
+          border: 1px solid rgba(99,102,241,0.35);
+          color: #a5b4fc;
+        }
+        .btn-bio-return:not(:disabled):hover { box-shadow: 0 0 20px rgba(99,102,241,0.2); }
 
         .btn-checkout {
           background: rgba(239,68,68,0.12);
@@ -557,6 +627,7 @@ export default function TimeClockPage() {
           display: flex;
           gap: 10px;
           margin-top: 16px;
+          flex-wrap: wrap;
         }
 
         .summary-chip {
@@ -566,6 +637,7 @@ export default function TimeClockPage() {
           border-radius: 6px;
           padding: 10px 8px;
           text-align: center;
+          min-width: 70px;
         }
 
         .summary-chip-label {
@@ -585,7 +657,8 @@ export default function TimeClockPage() {
         }
 
         .summary-chip-value.amber { color: #fbbf24; }
-        .summary-chip-value.blue { color: #60a5fa; }
+        .summary-chip-value.teal  { color: #2dd4bf; }
+        .summary-chip-value.blue  { color: #60a5fa; }
 
         .break-block {
           margin: 6px 0;
@@ -603,17 +676,42 @@ export default function TimeClockPage() {
           opacity: 0.8;
         }
 
+        .bio-block {
+          margin: 6px 0;
+          border-left: 2px solid rgba(45,212,191,0.3);
+          padding-left: 10px;
+        }
+
+        .bio-block-header {
+          font-family: 'Share Tech Mono', monospace;
+          font-size: 9px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          color: #2dd4bf;
+          padding: 6px 0 2px;
+          opacity: 0.8;
+        }
+
         .timeline-row-indent {
           padding-left: 4px;
         }
 
         .accent-amber { color: #fbbf24 !important; }
+        .accent-teal  { color: #2dd4bf !important; }
 
         .live-tag {
           font-family: 'Share Tech Mono', monospace;
           font-size: 10px;
           letter-spacing: 2px;
           color: #fbbf24;
+          animation: pulse 1.5s infinite;
+        }
+
+        .live-tag-teal {
+          font-family: 'Share Tech Mono', monospace;
+          font-size: 10px;
+          letter-spacing: 2px;
+          color: #2dd4bf;
           animation: pulse 1.5s infinite;
         }
 
@@ -672,6 +770,11 @@ export default function TimeClockPage() {
           box-shadow: 0 20px 60px rgba(0,255,136,0.2);
         }
 
+        .action-modal.bio {
+          border-color: rgba(45,212,191,0.4);
+          box-shadow: 0 20px 60px rgba(45,212,191,0.15);
+        }
+
         @keyframes slideUp {
           from { 
             opacity: 0;
@@ -691,6 +794,10 @@ export default function TimeClockPage() {
           border-bottom: 2px solid rgba(0,255,136,0.3);
         }
 
+        .action-modal.bio .action-modal-image {
+          border-bottom-color: rgba(45,212,191,0.4);
+        }
+
         .action-modal-content {
           padding: 32px 28px;
           text-align: center;
@@ -705,6 +812,11 @@ export default function TimeClockPage() {
           color: #00ff88;
           margin-bottom: 12px;
           text-shadow: 0 0 20px rgba(0,255,136,0.4);
+        }
+
+        .action-modal.bio .action-modal-title {
+          color: #2dd4bf;
+          text-shadow: 0 0 20px rgba(45,212,191,0.4);
         }
 
         .action-modal-message {
@@ -730,6 +842,12 @@ export default function TimeClockPage() {
           transition: all 0.2s;
         }
 
+        .action-modal.bio .action-modal-close {
+          background: rgba(45,212,191,0.1);
+          border-color: rgba(45,212,191,0.3);
+          color: #2dd4bf;
+        }
+
         .action-modal-close:hover {
           background: rgba(0,255,136,0.2);
           box-shadow: 0 0 16px rgba(0,255,136,0.3);
@@ -738,6 +856,7 @@ export default function TimeClockPage() {
         @media (max-width: 480px) {
           .card { padding: 24px 20px; }
           .buttons-grid { gap: 8px; }
+          .bio-grid { gap: 8px; }
           button { padding: 14px 6px; }
           .live-clock { letter-spacing: 2px; }
           .action-modal-image { height: 200px; }
@@ -753,7 +872,17 @@ export default function TimeClockPage() {
             <span className="dot" />
             EMPLOYEE TIME CLOCK
           </div>
-          <h1><span>CRIS</span>TIME<span>TRACK</span></h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
+  <img 
+    src="/images/logov3.png" 
+    alt="Logo" 
+    style={{ width: 64, height: 64, objectFit: "contain" }}
+  />
+  <h1><span>CRIS</span>TIME<span>TRACK</span></h1>
+</div>
+          
+          
+
           <div className="live-clock">
             {currentTime.toLocaleTimeString("en-US", {
               hour: "2-digit",
@@ -815,8 +944,27 @@ export default function TimeClockPage() {
             )}
           </div>
 
+          {/* Original 4 buttons — layout unchanged */}
           <div className="buttons-grid">
-            {buttons.map(({ action, label, emoji, color, disabled }) => (
+            {buttons.filter(b => ["check-in", "break-in", "break-out", "check-out"].includes(b.action)).map(({ action, label, emoji, color, disabled }) => (
+              <button
+                key={action}
+                className={color}
+                disabled={disabled || loading}
+                onClick={() => handleAction(action)}
+              >
+                <span className="btn-emoji">{loading && !disabled ? "⏳" : emoji}</span>
+                <span className="btn-text">{label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Bio break section */}
+          <div className="bio-section-label">
+            🚻 Bio Break <span style={{ color: "#2dd4bf", fontSize: 8 }}>(Malibang|Mangihi or Matug · WATER · QUICK PERSONAL)</span>
+          </div>
+          <div className="bio-grid">
+            {buttons.filter(b => ["bio-break-in", "bio-break-out"].includes(b.action)).map(({ action, label, emoji, color, disabled }) => (
               <button
                 key={action}
                 className={color}
@@ -872,6 +1020,33 @@ export default function TimeClockPage() {
                 </>
               )}
 
+              {/* Each bio break session */}
+              {entry.bioBreaks && entry.bioBreaks.length > 0 && (
+                <>
+                  {entry.bioBreaks.map((b, i) => (
+                    <div key={b._id || i} className="bio-block">
+                      <div className="bio-block-header">🚻 Bio Break #{i + 1}</div>
+                      <div className="timeline-row timeline-row-indent">
+                        <span className="timeline-label">Start</span>
+                        <span className="timeline-value">{formatTime(b.breakIn)}</span>
+                      </div>
+                      <div className="timeline-row timeline-row-indent">
+                        <span className="timeline-label">End</span>
+                        <span className="timeline-value">
+                          {b.breakOut ? formatTime(b.breakOut) : <span className="live-tag-teal">BIO BREAK</span>}
+                        </span>
+                      </div>
+                      {b.duration > 0 && (
+                        <div className="timeline-row timeline-row-indent">
+                          <span className="timeline-label">⏱ Duration</span>
+                          <span className="timeline-value accent-teal">{formatMinutes(b.duration)}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+
               {/* Check Out */}
               <div className="timeline-row">
                 <span className="timeline-label">🔴 Check Out</span>
@@ -893,6 +1068,12 @@ export default function TimeClockPage() {
                   </div>
                 </div>
                 <div className="summary-chip">
+                  <div className="summary-chip-label">Bio Break</div>
+                  <div className="summary-chip-value teal">
+                    {entry.totalBioBreak > 0 ? formatMinutes(entry.totalBioBreak) : "—"}
+                  </div>
+                </div>
+                <div className="summary-chip">
                   <div className="summary-chip-label">Breaks Taken</div>
                   <div className="summary-chip-value blue">
                     {entry.breaks?.length ?? 0}
@@ -906,7 +1087,10 @@ export default function TimeClockPage() {
         {/* Action Modal */}
         {actionModal && (
           <div className="action-modal-overlay" onClick={() => setActionModal(null)}>
-            <div className="action-modal" onClick={(e) => e.stopPropagation()}>
+            <div
+              className={`action-modal${actionModal.action.includes("bio") ? " bio" : ""}`}
+              onClick={(e) => e.stopPropagation()}
+            >
               <img 
                 src={actionModal.image} 
                 alt={actionModal.action}
@@ -921,6 +1105,8 @@ export default function TimeClockPage() {
                   {actionModal.action === "check-in" && "✅ CHECKED IN!"}
                   {actionModal.action === "break-in" && "☕ ON BREAK!"}
                   {actionModal.action === "break-out" && "🔄 BACK TO WORK!"}
+                  {actionModal.action === "bio-break-in" && "🚻 BIO BREAK!"}
+                  {actionModal.action === "bio-break-out" && "✅ BACK TO WORK!"}
                   {actionModal.action === "check-out" && "👋 CHECKED OUT!"}
                 </div>
                 <div className="action-modal-message">
