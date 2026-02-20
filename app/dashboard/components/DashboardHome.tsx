@@ -10,6 +10,14 @@ interface BreakSession {
   duration: number;
 }
 
+// ── ADDED: selfie interface ──
+interface SelfieEntry {
+  _id: string;
+  action: string;
+  url: string;
+  takenAt: string;
+}
+
 interface TimeEntry {
   _id: string;
   employeeName: string;
@@ -26,6 +34,7 @@ interface TimeEntry {
   totalBioBreak: number;
   status: "checked-in" | "on-break" | "on-bio-break" | "returned" | "checked-out";
   createdAt: string;
+  selfies?: SelfieEntry[]; // ── ADDED
 }
 
 type User = {
@@ -63,8 +72,27 @@ const STATUS_LABEL: Record<string, string> = {
   "checked-in": "Working",
   "on-break": "On Break",
   "on-bio-break": "Bio Break",
-  returned: "Returned",
+  returned: "Working",
   "checked-out": "Done",
+};
+
+// ── ADDED: action labels + colors for selfie badges ──
+const ACTION_LABEL: Record<string, string> = {
+  "check-in":      "Check-In",
+  "break-in":      "Break",
+  "break-out":     "Return",
+  "bio-break-in":  "Bio Break",
+  "bio-break-out": "End Bio",
+  "check-out":     "Check-Out",
+};
+
+const ACTION_COLOR: Record<string, string> = {
+  "check-in":      "#16a34a",
+  "break-in":      "#d97706",
+  "break-out":     "#2563eb",
+  "bio-break-in":  "#0d9488",
+  "bio-break-out": "#7c3aed",
+  "check-out":     "#dc2626",
 };
 
 // ── EXPORT HELPERS ──────────────────────────────────────────────
@@ -195,6 +223,9 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
   // ── DELETE MODAL STATE (only addition) ──
   const [deleteModal, setDeleteModal] = useState<{ id: string; name: string; date: string } | null>(null);
 
+  // ── ADDED: lightbox state ──
+  const [lightbox, setLightbox] = useState<{ selfies: SelfieEntry[]; index: number; employeeName: string } | null>(null);
+
   const today = new Date().toISOString().split("T")[0];
 
   useEffect(() => {
@@ -267,6 +298,26 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
   const activeNow = records.filter((r) => r.date === today && r.status !== "checked-out").length;
   const totalHoursToday = todayRecords.reduce((sum, r) => sum + (r.totalWorked || 0), 0);
   const hasActiveFilters = nameFilter || dateFrom || dateTo;
+
+  // ── ADDED: lightbox helpers ──
+  const openLightbox = (selfies: SelfieEntry[], index: number, employeeName: string) =>
+    setLightbox({ selfies, index, employeeName });
+  const closeLightbox = () => setLightbox(null);
+  const lbPrev = () => lightbox && setLightbox({ ...lightbox, index: (lightbox.index - 1 + lightbox.selfies.length) % lightbox.selfies.length });
+  const lbNext = () => lightbox && setLightbox({ ...lightbox, index: (lightbox.index + 1) % lightbox.selfies.length });
+
+  // ── ADDED: keyboard nav for lightbox ──
+  useEffect(() => {
+    if (!lightbox) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft")  lbPrev();
+      if (e.key === "ArrowRight") lbNext();
+      if (e.key === "Escape")     closeLightbox();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightbox]);
 
   return (
     <>
@@ -738,8 +789,8 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
         .status-break::before { background: #d97706; animation: pulse-dot 1.5s infinite; }
         .status-bio      { background: #ccfbf1; color: #0f766e; }
         .status-bio::before { background: #14b8a6; animation: pulse-dot 1.5s infinite; }
-        .status-returned { background: #dbeafe; color: #1d4ed8; }
-        .status-returned::before { background: #2563eb; }
+        .status-returned { background: #dcfce7; color: #15803d; }
+        .status-returned::before { background: #16a34a; }
         .status-out      { background: var(--surface-alt); color: var(--text-muted); border: 1px solid var(--border); }
         .status-out::before { background: var(--border-strong); }
 
@@ -1121,9 +1172,270 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
           flex-shrink: 0;
         }
         .btn-analytics:hover { background: #dbeafe; border-color: #60a5fa; }
+        .btn-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--text-muted);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: var(--shadow);
+  flex-shrink: 0;
+}
+.btn-refresh:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text); }
+.btn-refresh:disabled { opacity: 0.5; cursor: wait; }
+@keyframes spin-refresh { to { transform: rotate(360deg); } }
+.refresh-spin { display: inline-block; animation: spin-refresh 0.7s linear infinite; }
+
+        /* ── ADDED: selfie thumbnails ── */
+        .selfie-thumbs {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+          align-items: center;
+        }
+        .selfie-thumb-wrap {
+          position: relative;
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+        .selfie-thumb {
+          width: 36px;
+          height: 36px;
+          border-radius: 6px;
+          object-fit: cover;
+          border: 1.5px solid var(--border);
+          transition: all 0.15s;
+          display: block;
+        }
+        .selfie-thumb:hover {
+          border-color: #6366f1;
+          transform: scale(1.1);
+          box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+          z-index: 1;
+        }
+        .selfie-thumb-badge {
+          position: absolute;
+          bottom: -3px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #1e1b4b;
+          color: #a5b4fc;
+          font-family: 'DM Mono', monospace;
+          font-size: 7px;
+          padding: 1px 4px;
+          border-radius: 3px;
+          white-space: nowrap;
+          letter-spacing: 0.3px;
+          pointer-events: none;
+        }
+        .selfie-count-badge {
+          background: #ede9fe;
+          border: 1.5px solid #c4b5fd;
+          color: #7c3aed;
+          font-family: 'DM Mono', monospace;
+          font-size: 9px;
+          font-weight: 700;
+          padding: 2px 7px;
+          border-radius: 20px;
+          white-space: nowrap;
+          cursor: pointer;
+          transition: all 0.15s;
+          border-style: solid;
+        }
+        .selfie-count-badge:hover { background: #ddd6fe; border-color: #a78bfa; }
+        .no-selfie { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-light); }
+
+        /* ── ADDED: mobile selfies ── */
+        .mobile-selfies-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          margin-top: 6px;
+        }
+        .mobile-selfie-wrap { position: relative; cursor: pointer; }
+        .mobile-selfie-img {
+          width: 52px;
+          height: 52px;
+          border-radius: 8px;
+          object-fit: cover;
+          border: 1.5px solid var(--border);
+          display: block;
+          transition: all 0.15s;
+        }
+        .mobile-selfie-img:hover { border-color: #6366f1; box-shadow: 0 2px 8px rgba(99,102,241,0.3); }
+        .mobile-selfie-badge {
+          position: absolute;
+          bottom: -3px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #1e1b4b;
+          color: #a5b4fc;
+          font-family: 'DM Mono', monospace;
+          font-size: 7px;
+          padding: 1px 4px;
+          border-radius: 3px;
+          white-space: nowrap;
+          pointer-events: none;
+        }
+
+        /* ── ADDED: lightbox ── */
+        .lb-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.92);
+          backdrop-filter: blur(12px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          animation: lbFadeIn 0.2s ease;
+        }
+        @keyframes lbFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .lb-container {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          max-width: 560px;
+          width: 94vw;
+          animation: lbSlide 0.25s ease;
+        }
+        @keyframes lbSlide {
+          from { opacity: 0; transform: scale(0.94) translateY(16px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0); }
+        }
+        .lb-close {
+          position: absolute;
+          top: -44px;
+          right: 0;
+          background: rgba(255,255,255,0.1);
+          border: 1px solid rgba(255,255,255,0.15);
+          color: #fff;
+          width: 36px; height: 36px;
+          border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 18px;
+          cursor: pointer;
+          transition: all 0.15s;
+          line-height: 1;
+        }
+        .lb-close:hover { background: rgba(255,255,255,0.2); }
+        .lb-img-wrap {
+          border-radius: 12px;
+          overflow: hidden;
+          border: 2px solid rgba(255,255,255,0.12);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+          width: 100%;
+          background: #0a0a0a;
+        }
+        .lb-img { width: 100%; max-height: 70vh; object-fit: contain; display: block; }
+        .lb-footer {
+          margin-top: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          gap: 12px;
+        }
+        .lb-nav {
+          background: rgba(255,255,255,0.1);
+          border: 1px solid rgba(255,255,255,0.15);
+          color: #fff;
+          width: 40px; height: 40px;
+          border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 18px;
+          cursor: pointer;
+          transition: all 0.15s;
+          flex-shrink: 0;
+        }
+        .lb-nav:hover { background: rgba(255,255,255,0.2); }
+        .lb-nav:disabled { opacity: 0.2; cursor: default; }
+        .lb-info { flex: 1; text-align: center; }
+        .lb-name {
+          font-family: 'Cabinet Grotesk', sans-serif;
+          font-size: 15px;
+          font-weight: 700;
+          color: #fff;
+          letter-spacing: -0.3px;
+          margin-bottom: 4px;
+        }
+        .lb-action-pill {
+          display: inline-block;
+          padding: 3px 10px;
+          border-radius: 20px;
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          background: rgba(255,255,255,0.1);
+          border: 1px solid rgba(255,255,255,0.15);
+          margin-bottom: 4px;
+        }
+        .lb-time {
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          color: rgba(255,255,255,0.4);
+          letter-spacing: 1px;
+        }
+        .lb-dots { display: flex; gap: 6px; justify-content: center; margin-top: 12px; }
+        .lb-dot {
+          width: 6px; height: 6px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.25);
+          cursor: pointer;
+          transition: all 0.15s;
+          border: none;
+          padding: 0;
+        }
+        .lb-dot.active { background: #fff; transform: scale(1.3); }
       `}</style>
 
       <div className="dh-wrap">
+
+        {/* ── ADDED: LIGHTBOX ── */}
+        {lightbox && (
+          <div className="lb-overlay" onClick={closeLightbox}>
+            <div className="lb-container" onClick={(e) => e.stopPropagation()}>
+              <button className="lb-close" onClick={closeLightbox}>✕</button>
+              <div className="lb-img-wrap">
+                <img src={lightbox.selfies[lightbox.index].url} alt="Selfie" className="lb-img" />
+              </div>
+              <div className="lb-footer">
+                <button className="lb-nav" onClick={lbPrev} disabled={lightbox.selfies.length <= 1}>‹</button>
+                <div className="lb-info">
+                  <div className="lb-name">{lightbox.employeeName}</div>
+                  <div className="lb-action-pill" style={{ color: ACTION_COLOR[lightbox.selfies[lightbox.index].action] || "#e2e8f0" }}>
+                    {ACTION_LABEL[lightbox.selfies[lightbox.index].action] ?? lightbox.selfies[lightbox.index].action}
+                  </div>
+                  <div className="lb-time">
+                    {new Date(lightbox.selfies[lightbox.index].takenAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                    &nbsp;·&nbsp;{lightbox.index + 1} / {lightbox.selfies.length}
+                  </div>
+                </div>
+                <button className="lb-nav" onClick={lbNext} disabled={lightbox.selfies.length <= 1}>›</button>
+              </div>
+              {lightbox.selfies.length > 1 && (
+                <div className="lb-dots">
+                  {lightbox.selfies.map((_, i) => (
+                    <button key={i} className={`lb-dot${i === lightbox.index ? " active" : ""}`} onClick={() => setLightbox({ ...lightbox, index: i })} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── DELETE CONFIRMATION MODAL ── */}
         {deleteModal && (
@@ -1258,6 +1570,7 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                   >
                     {exporting === "excel" ? <span className="export-spinner" /> : "⬇"} .xlsx
                   </button>
+                  
                   <button
                     className="btn-export-sm btn-export-sm-pdf"
                     onClick={handleExportPDF}
@@ -1266,6 +1579,14 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                   >
                     {exporting === "pdf" ? <span className="export-spinner" /> : "⬇"} .pdf
                   </button>
+                  <button
+  className="btn-refresh"
+  onClick={() => fetchRecords()}
+  disabled={loading}
+  title="Refresh records"
+>
+  <span className={loading ? "refresh-spin" : ""}>↻</span> Refresh Records
+</button>
                 </>
               )}
               {!loading && <span className="record-count">{records.length} of {total}</span>}
@@ -1301,6 +1622,8 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                         <th>Bio Total</th>
                         <th>Worked</th>
                         <th>Status</th>
+                        {/* ── ADDED: selfies column header ── */}
+                        <th>📸 Selfies</th>
                         <th></th>
                       </tr>
                     </thead>
@@ -1356,6 +1679,33 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                               {STATUS_LABEL[r.status] || r.status}
                             </span>
                           </td>
+                          {/* ── ADDED: selfies cell ── */}
+                          <td style={{ whiteSpace: "normal", minWidth: 120 }}>
+                            {r.selfies && r.selfies.length > 0 ? (
+                              <div className="selfie-thumbs">
+                                {r.selfies.slice(0, 3).map((s, i) => (
+                                  <div
+                                    key={s._id || i}
+                                    className="selfie-thumb-wrap"
+                                    onClick={() => openLightbox(r.selfies!, i, r.employeeName)}
+                                    title={`${ACTION_LABEL[s.action] ?? s.action} — click to view`}
+                                  >
+                                    <img src={s.url} alt={s.action} className="selfie-thumb" />
+                                    <div className="selfie-thumb-badge" style={{ color: ACTION_COLOR[s.action] || "#a5b4fc" }}>
+                                      {(ACTION_LABEL[s.action] ?? s.action).split("-")[0]}
+                                    </div>
+                                  </div>
+                                ))}
+                                {r.selfies.length > 3 && (
+                                  <span className="selfie-count-badge" onClick={() => openLightbox(r.selfies!, 3, r.employeeName)}>
+                                    +{r.selfies.length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="no-selfie">—</span>
+                            )}
+                          </td>
                           <td>
                             {/* ── UPDATED: passes name + date to modal ── */}
                             <button
@@ -1386,6 +1736,15 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                             <div className="mobile-meta">
                               <span className="mobile-date">{r.date}</span>
                               <span className={`status-badge ${STATUS_STYLE[r.status] || ""}`}>{STATUS_LABEL[r.status] || r.status}</span>
+                              {/* ── ADDED: selfie count pill on mobile card header ── */}
+                              {r.selfies && r.selfies.length > 0 && (
+                                <span
+                                  className="selfie-count-badge"
+                                  onClick={(e) => { e.stopPropagation(); openLightbox(r.selfies!, 0, r.employeeName); }}
+                                >
+                                  📸 {r.selfies.length}
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="mobile-card-right">
@@ -1447,6 +1806,26 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
                                       <span className="break-arrow">→</span>
                                       <span>{b.breakOut ? fmt(b.breakOut) : <span className="live-dot">●</span>}</span>
                                       {b.duration > 0 && <span className="bio-dur">{fmtMins(b.duration)}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {/* ── ADDED: selfies in mobile expanded detail ── */}
+                            {r.selfies && r.selfies.length > 0 && (
+                              <div className="detail-item" style={{ gridColumn: "1 / -1" }}>
+                                <span className="detail-lbl">📸 Selfies</span>
+                                <div className="mobile-selfies-row">
+                                  {r.selfies.map((s, i) => (
+                                    <div
+                                      key={s._id || i}
+                                      className="mobile-selfie-wrap"
+                                      onClick={() => openLightbox(r.selfies!, i, r.employeeName)}
+                                    >
+                                      <img src={s.url} alt={s.action} className="mobile-selfie-img" />
+                                      <div className="mobile-selfie-badge" style={{ color: ACTION_COLOR[s.action] || "#a5b4fc" }}>
+                                        {ACTION_LABEL[s.action] ?? s.action}
+                                      </div>
                                     </div>
                                   ))}
                                 </div>

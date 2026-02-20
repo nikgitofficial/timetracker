@@ -1,3 +1,4 @@
+// models/TimeEntry.ts
 import mongoose, { Schema, models, model } from "mongoose";
 
 const BreakSessionSchema = new Schema(
@@ -5,6 +6,16 @@ const BreakSessionSchema = new Schema(
     breakIn: { type: Date, required: true },
     breakOut: { type: Date, default: null },
     duration: { type: Number, default: 0 }, // minutes
+  },
+  { _id: true }
+);
+
+// NEW: tracks selfie per action
+const SelfieSchema = new Schema(
+  {
+    action: { type: String, required: true }, // "check-in", "break-in", etc.
+    url: { type: String, required: true },
+    takenAt: { type: Date, default: Date.now },
   },
   { _id: true }
 );
@@ -31,6 +42,9 @@ const TimeEntrySchema = new Schema(
       enum: ["checked-in", "on-break", "on-bio-break", "returned", "checked-out"],
       default: "checked-in",
     },
+
+    // 📸 NEW: selfies per action
+    selfies: { type: [SelfieSchema], default: [] },
   },
   { timestamps: true }
 );
