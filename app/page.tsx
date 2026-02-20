@@ -413,13 +413,15 @@ export default function TimeClockPage() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
             <img src="/images/logov3.png" alt="Logo" style={{ width: 64, height: 64, objectFit: "contain" }} />
             <h1><span>CRIS</span>TIME<span>TRACK</span></h1>
+            
           </div>
+          
           <div className="live-clock">
             {currentTime.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
           </div>
           <div className="date-display">{today}</div>
         </div>
-
+      
         <div className="card">
           {/* Email */}
           <div className="field-label">Your Email</div>

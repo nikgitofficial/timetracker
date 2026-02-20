@@ -372,9 +372,19 @@
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   cursor: grab;
+  /* ── ADDED: cap at 8 rows; thead ~37px + 8 rows × ~49px each ── */
+  max-height: calc(37px + 8 * 49px);
 }
 .table-scroll:active { cursor: grabbing; }
 .table-scroll.dragging * { pointer-events: none; }
+
+/* ── ADDED: sticky header so columns stay visible while scrolling vertically ── */
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-alt);
+}
 
 table { width: 100%; border-collapse: collapse; min-width: 680px; }
 thead { background: var(--surface-alt); }
