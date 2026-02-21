@@ -847,14 +847,18 @@ useEffect(() => {
               </div>
 
               {/* Pagination */}
-              <div className="pagination">
-                <span className="pag-info">{records.length} of {total} records</span>
-                <div className="pag-controls">
-                  <button className="pag-btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
-                  <span className="pag-page">{page} / {totalPages}</span>
-                  <button className="pag-btn" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
-                </div>
-              </div>
+<div className="pagination">
+  <span className="pag-info">
+    Showing {((page - 1) * 25) + 1}–{Math.min(page * 25, total)} of {total} records
+  </span>
+  <div className="pag-controls">
+    <button className="pag-btn" disabled={page <= 1} onClick={() => setPage(1)} title="First page">«</button>
+    <button className="pag-btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+    <span className="pag-page">{page} / {totalPages}</span>
+    <button className="pag-btn" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
+    <button className="pag-btn" disabled={page >= totalPages} onClick={() => setPage(totalPages)} title="Last page">»</button>
+  </div>
+</div>
             </>
           )}
         </div>
