@@ -52,6 +52,13 @@ function formatMinutes(mins: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+function toLocalDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 const actionLabels: Record<string, string> = {
   "check-in": "Check-In",
   "break-in": "Break",
@@ -72,7 +79,15 @@ export default function TimeClockPage() {
   const [fetching, setFetching] = useState(false);
   const [actionModal, setActionModal] = useState<{ action: Action; image: string; message: string } | null>(null);
 
-  // ── LIGHTBOX STATE ── (ADDED)
+  // ── DATE PICKER STATE ──
+  const today = toLocalDateString(new Date());
+  const [selectedDate, setSelectedDate] = useState<string>(today);
+  const [isHistorical, setIsHistorical] = useState(false);
+  const [historicalEntry, setHistoricalEntry] = useState<TimeEntry | null>(null);
+  const [fetchingHistorical, setFetchingHistorical] = useState(false);
+  const [historicalMessage, setHistoricalMessage] = useState<string | null>(null);
+
+  // ── LIGHTBOX STATE ──
   const [lightbox, setLightbox] = useState<{ selfies: SelfieEntry[]; index: number } | null>(null);
 
   // ── CAMERA STATE ──
@@ -81,7 +96,7 @@ export default function TimeClockPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null); // base64 data URL
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoUploaded, setPhotoUploaded] = useState(false);
@@ -152,6 +167,13 @@ export default function TimeClockPage() {
     }
   }, [message]);
 
+  // Detect if selected date is today or historical
+  useEffect(() => {
+    setIsHistorical(selectedDate !== today);
+    setHistoricalEntry(null);
+    setHistoricalMessage(null);
+  }, [selectedDate, today]);
+
   // ── START CAMERA when modal opens ──
   useEffect(() => {
     if (actionModal) {
@@ -171,7 +193,7 @@ export default function TimeClockPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionModal]);
 
-  // ── LIGHTBOX KEYBOARD NAV ── (ADDED)
+  // ── LIGHTBOX KEYBOARD NAV ──
   useEffect(() => {
     if (!lightbox) return;
     const handler = (e: KeyboardEvent) => {
@@ -195,7 +217,6 @@ export default function TimeClockPage() {
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play();
           setCameraReady(true);
-          // Auto-countdown starts after camera is ready
           startCountdown();
         };
       }
@@ -240,7 +261,6 @@ export default function TimeClockPage() {
     canvas.height = video.videoHeight || 480;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    // Mirror the image (selfie style)
     ctx.save();
     ctx.scale(-1, 1);
     ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
@@ -248,7 +268,6 @@ export default function TimeClockPage() {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
     setCapturedPhoto(dataUrl);
     stopCamera();
-    // Auto-upload
     uploadPhoto(dataUrl);
   };
 
@@ -256,25 +275,18 @@ export default function TimeClockPage() {
     if (!actionModal) return;
     setUploadingPhoto(true);
     try {
-      // Convert base64 to Blob
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const file = new File([blob], `selfie-${Date.now()}.jpg`, { type: "image/jpeg" });
-
       const formData = new FormData();
       formData.append("file", file);
       formData.append("email", email.trim().toLowerCase());
       formData.append("employeeName", name.trim());
       formData.append("action", actionModal.action);
-
-      const uploadRes = await fetch("/api/time/selfie", {
-        method: "POST",
-        body: formData,
-      });
+      const uploadRes = await fetch("/api/time/selfie", { method: "POST", body: formData });
       const data = await uploadRes.json();
       if (uploadRes.ok) {
         setPhotoUploaded(true);
-        // Update local entry with new selfie
         if (data.entry) setEntry(data.entry);
       } else {
         console.error("Selfie upload failed:", data.error);
@@ -298,7 +310,7 @@ export default function TimeClockPage() {
     setActionModal(null);
   };
 
-  // Fetch today's status
+  // Fetch today's active status
   const fetchStatus = useCallback(async (e: string, n: string) => {
     if (!e.trim() || !n.trim()) return;
     setFetching(true);
@@ -314,6 +326,38 @@ export default function TimeClockPage() {
       setFetching(false);
     }
   }, []);
+
+  // ── FETCH HISTORICAL RECORD BY DATE ──
+  const fetchHistoricalRecord = useCallback(async (date: string) => {
+    if (!email.trim() || !name.trim()) {
+      setMessage({ text: "Please enter your email and name first", type: "error" });
+      return;
+    }
+    if (!validateEmail(email)) {
+      setMessage({ text: "Please enter a valid email first", type: "error" });
+      return;
+    }
+    setFetchingHistorical(true);
+    setHistoricalEntry(null);
+    setHistoricalMessage(null);
+    try {
+      const res = await fetch(
+        `/api/time/myrecord?email=${encodeURIComponent(email.trim().toLowerCase())}&name=${encodeURIComponent(name.trim())}&date=${date}`
+      );
+      const data = await res.json();
+      if (data.entry) {
+        setHistoricalEntry(data.entry);
+        setHistoricalMessage(null);
+      } else {
+        setHistoricalEntry(null);
+        setHistoricalMessage(`No record found for ${new Date(date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`);
+      }
+    } catch {
+      setHistoricalMessage("Failed to fetch record. Please try again.");
+    } finally {
+      setFetchingHistorical(false);
+    }
+  }, [email, name]);
 
   const validateEmail = (val: string) => {
     if (!val) { setEmailError("Email is required"); return false; }
@@ -336,7 +380,18 @@ export default function TimeClockPage() {
   const handleCheckStatus = () => {
     if (!name.trim()) { setMessage({ text: "Please enter your name first", type: "error" }); return; }
     if (!validateEmail(email)) { setMessage({ text: "Please enter a valid email first", type: "error" }); return; }
-    fetchStatus(email, name);
+    if (isHistorical) {
+      fetchHistoricalRecord(selectedDate);
+    } else {
+      fetchStatus(email, name);
+    }
+  };
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newDate = e.target.value;
+    setSelectedDate(newDate);
+    setHistoricalEntry(null);
+    setHistoricalMessage(null);
   };
 
   const handleAction = async (action: Action) => {
@@ -393,14 +448,116 @@ export default function TimeClockPage() {
     "checked-out": "🔴 CHECKED OUT",
   };
 
-  const today = currentTime.toLocaleDateString("en-US", {
+  const todayDisplay = currentTime.toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
 
+  // Shared timeline renderer for both today and historical entries
+  const renderTimeline = (rec: TimeEntry, liveWorked?: number) => {
+    const worked = liveWorked !== undefined ? liveWorked : rec.totalWorked;
+    return (
+      <div className="timeline">
+        <div className="timeline-title">
+          {rec.date === today ? "Today's Log" : `Record for ${new Date(rec.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}`}
+        </div>
+
+        <div className="timeline-row">
+          <span className="timeline-label">🟢 Check In</span>
+          <span className="timeline-value">{formatTime(rec.checkIn)}</span>
+        </div>
+
+        {rec.breaks?.length > 0 && rec.breaks.map((b, i) => (
+          <div key={b._id || i} className="break-block">
+            <div className="break-block-header">Break #{i + 1}</div>
+            <div className="timeline-row timeline-row-indent">
+              <span className="timeline-label">☕ Start</span>
+              <span className="timeline-value">{formatTime(b.breakIn)}</span>
+            </div>
+            <div className="timeline-row timeline-row-indent">
+              <span className="timeline-label">🔄 End</span>
+              <span className="timeline-value">
+                {b.breakOut ? formatTime(b.breakOut) : <span className="live-tag">ON BREAK</span>}
+              </span>
+            </div>
+            {b.duration > 0 && (
+              <div className="timeline-row timeline-row-indent">
+                <span className="timeline-label">⏱ Duration</span>
+                <span className="timeline-value accent-amber">{formatMinutes(b.duration)}</span>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {rec.bioBreaks?.length > 0 && rec.bioBreaks.map((b, i) => (
+          <div key={b._id || i} className="bio-block">
+            <div className="bio-block-header">🚻 Bio Break #{i + 1}</div>
+            <div className="timeline-row timeline-row-indent">
+              <span className="timeline-label">Start</span>
+              <span className="timeline-value">{formatTime(b.breakIn)}</span>
+            </div>
+            <div className="timeline-row timeline-row-indent">
+              <span className="timeline-label">End</span>
+              <span className="timeline-value">
+                {b.breakOut ? formatTime(b.breakOut) : <span className="live-tag-teal">BIO BREAK</span>}
+              </span>
+            </div>
+            {b.duration > 0 && (
+              <div className="timeline-row timeline-row-indent">
+                <span className="timeline-label">⏱ Duration</span>
+                <span className="timeline-value accent-teal">{formatMinutes(b.duration)}</span>
+              </div>
+            )}
+          </div>
+        ))}
+
+        <div className="timeline-row">
+          <span className="timeline-label">🔴 Check Out</span>
+          <span className="timeline-value">{formatTime(rec.checkOut)}</span>
+        </div>
+
+        <div className="summary-row">
+          <div className="summary-chip">
+            <div className="summary-chip-label">Hours Worked</div>
+            <div className="summary-chip-value">{worked > 0 ? formatMinutes(worked) : "—"}</div>
+          </div>
+          <div className="summary-chip">
+            <div className="summary-chip-label">Total Break</div>
+            <div className="summary-chip-value amber">{rec.totalBreak > 0 ? formatMinutes(rec.totalBreak) : "—"}</div>
+          </div>
+          <div className="summary-chip">
+            <div className="summary-chip-label">Bio Break</div>
+            <div className="summary-chip-value teal">{rec.totalBioBreak > 0 ? formatMinutes(rec.totalBioBreak) : "—"}</div>
+          </div>
+          <div className="summary-chip">
+            <div className="summary-chip-label">Breaks Taken</div>
+            <div className="summary-chip-value blue">{rec.breaks?.length ?? 0}</div>
+          </div>
+        </div>
+
+        {/* Selfie Gallery */}
+        {rec.selfies && rec.selfies.length > 0 && (
+          <div className="selfie-gallery">
+            <div className="selfie-gallery-title">📸 {rec.date === today ? "Today's" : "Day's"} Selfies</div>
+            <div className="selfie-grid">
+              {rec.selfies.map((s, i) => (
+                <div
+                  key={s._id}
+                  className="selfie-item"
+                  onClick={() => setLightbox({ selfies: rec.selfies!, index: i })}
+                >
+                  <img src={s.url} alt={s.action} />
+                  <div className="selfie-badge">{actionLabels[s.action] ?? s.action}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
-      
-
       {/* Hidden canvas for photo capture */}
       <canvas ref={canvasRef} style={{ display: "none" }} />
 
@@ -413,15 +570,13 @@ export default function TimeClockPage() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
             <img src="/images/logov3.png" alt="Logo" style={{ width: 64, height: 64, objectFit: "contain" }} />
             <h1><span>CRIS</span>TIME<span>TRACK</span></h1>
-            
           </div>
-          
           <div className="live-clock">
             {currentTime.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
           </div>
-          <div className="date-display">{today}</div>
+          <div className="date-display">{todayDisplay}</div>
         </div>
-      
+
         <div className="card">
           {/* Email */}
           <div className="field-label">Your Email</div>
@@ -450,44 +605,108 @@ export default function TimeClockPage() {
             autoComplete="name"
           />
 
-          <button className="check-status-btn" onClick={handleCheckStatus} disabled={fetching}>
-            {fetching ? <><span className="loading-spinner" /> CHECKING...</> : <>🔍 CHECK MY STATUS</>}
-          </button>
-
-          <div className="status-bar">
-            {fetching ? (
-              <span className="status-text status-idle"><span className="loading-spinner" /> Fetching your status...</span>
-            ) : status ? (
-              <span className="status-text">{statusLabels[status]}</span>
-            ) : (
-              <span className="status-text status-idle">
-                {email.trim() && name.trim() ? "NO RECORD FOR TODAY — TAP CHECK MY STATUS" : "ENTER EMAIL & NAME TO BEGIN"}
-              </span>
+          {/* ── DATE PICKER ── */}
+          <div className="date-picker-section">
+            <div className="date-picker-label">
+              <span className="date-picker-icon">📅</span>
+              <span>VIEW DATE</span>
+              {isHistorical && (
+                <span className="date-picker-historical-badge">HISTORICAL</span>
+              )}
+            </div>
+            <div className="date-picker-row">
+              <input
+                type="date"
+                className="date-picker-input"
+                value={selectedDate}
+                max={today}
+                onChange={handleDateChange}
+              />
+              {isHistorical && (
+                <button
+                  className="date-picker-today-btn"
+                  onClick={() => {
+                    setSelectedDate(today);
+                    setHistoricalEntry(null);
+                    setHistoricalMessage(null);
+                  }}
+                >
+                  TODAY
+                </button>
+              )}
+            </div>
+            {isHistorical && (
+              <div className="date-picker-hint">
+                🕐 Viewing past record — punch actions are disabled
+              </div>
             )}
           </div>
 
-          {/* Main 4 buttons */}
-          <div className="buttons-grid">
-            {buttons.filter(b => ["check-in", "break-in", "break-out", "check-out"].includes(b.action)).map(({ action, label, emoji, color, disabled }) => (
-              <button key={action} className={color} disabled={disabled || loading} onClick={() => handleAction(action)}>
-                <span className="btn-emoji">{loading && !disabled ? "⏳" : emoji}</span>
-                <span className="btn-text">{label}</span>
-              </button>
-            ))}
-          </div>
+          <button className="check-status-btn" onClick={handleCheckStatus} disabled={fetching || fetchingHistorical}>
+            {(fetching || fetchingHistorical) ? (
+              <><span className="loading-spinner" /> CHECKING...</>
+            ) : (
+              <>{isHistorical ? "📂 LOAD RECORD" : "🔍 CHECK MY STATUS"}</>
+            )}
+          </button>
 
-          {/* Bio break */}
-          <div className="bio-section-label">
-            🚻 Bio Break <span style={{ color: "#2dd4bf", fontSize: 8 }}>(Malibang|Mangihi or Matug · WATER · QUICK PERSONAL)</span>
-          </div>
-          <div className="bio-grid">
-            {buttons.filter(b => ["bio-break-in", "bio-break-out"].includes(b.action)).map(({ action, label, emoji, color, disabled }) => (
-              <button key={action} className={color} disabled={disabled || loading} onClick={() => handleAction(action)}>
-                <span className="btn-emoji">{loading && !disabled ? "⏳" : emoji}</span>
-                <span className="btn-text">{label}</span>
-              </button>
-            ))}
-          </div>
+          {/* Status bar — only for today */}
+          {!isHistorical && (
+            <div className="status-bar">
+              {fetching ? (
+                <span className="status-text status-idle"><span className="loading-spinner" /> Fetching your status...</span>
+              ) : status ? (
+                <span className="status-text">{statusLabels[status]}</span>
+              ) : (
+                <span className="status-text status-idle">
+                  {email.trim() && name.trim() ? "NO RECORD FOR TODAY — TAP CHECK MY STATUS" : "ENTER EMAIL & NAME TO BEGIN"}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Historical date status bar */}
+          {isHistorical && (
+            <div className="status-bar status-bar-historical">
+              {fetchingHistorical ? (
+                <span className="status-text status-idle"><span className="loading-spinner" /> Loading record...</span>
+              ) : historicalEntry ? (
+                <span className="status-text status-historical-found">
+                  📋 RECORD FOUND · {historicalEntry.status?.replace(/-/g, " ").toUpperCase()}
+                </span>
+              ) : historicalMessage ? (
+                <span className="status-text status-historical-empty">📭 {historicalMessage}</span>
+              ) : (
+                <span className="status-text status-idle">TAP LOAD RECORD TO VIEW</span>
+              )}
+            </div>
+          )}
+
+          {/* Punch buttons — only for today */}
+          {!isHistorical && (
+            <>
+              <div className="buttons-grid">
+                {buttons.filter(b => ["check-in", "break-in", "break-out", "check-out"].includes(b.action)).map(({ action, label, emoji, color, disabled }) => (
+                  <button key={action} className={color} disabled={disabled || loading} onClick={() => handleAction(action)}>
+                    <span className="btn-emoji">{loading && !disabled ? "⏳" : emoji}</span>
+                    <span className="btn-text">{label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="bio-section-label">
+                🚻 Bio Break <span style={{ color: "#2dd4bf", fontSize: 8 }}>(Malibang|Mangihi or Matug · WATER · QUICK PERSONAL)</span>
+              </div>
+              <div className="bio-grid">
+                {buttons.filter(b => ["bio-break-in", "bio-break-out"].includes(b.action)).map(({ action, label, emoji, color, disabled }) => (
+                  <button key={action} className={color} disabled={disabled || loading} onClick={() => handleAction(action)}>
+                    <span className="btn-emoji">{loading && !disabled ? "⏳" : emoji}</span>
+                    <span className="btn-text">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
           {message && (
             <div className={`toast ${message.type === "success" ? "toast-success" : "toast-error"}`}>
@@ -495,102 +714,18 @@ export default function TimeClockPage() {
             </div>
           )}
 
-          {entry && (
-            <div className="timeline">
-              <div className="timeline-title">Today&apos;s Log</div>
+          {/* Today's record */}
+          {!isHistorical && entry && renderTimeline(entry, liveWorkedMins)}
 
-              <div className="timeline-row">
-                <span className="timeline-label">🟢 Check In</span>
-                <span className="timeline-value">{formatTime(entry.checkIn)}</span>
-              </div>
+          {/* Historical record */}
+          {isHistorical && historicalEntry && renderTimeline(historicalEntry)}
 
-              {entry.breaks?.length > 0 && entry.breaks.map((b, i) => (
-                <div key={b._id || i} className="break-block">
-                  <div className="break-block-header">Break #{i + 1}</div>
-                  <div className="timeline-row timeline-row-indent">
-                    <span className="timeline-label">☕ Start</span>
-                    <span className="timeline-value">{formatTime(b.breakIn)}</span>
-                  </div>
-                  <div className="timeline-row timeline-row-indent">
-                    <span className="timeline-label">🔄 End</span>
-                    <span className="timeline-value">
-                      {b.breakOut ? formatTime(b.breakOut) : <span className="live-tag">ON BREAK</span>}
-                    </span>
-                  </div>
-                  {b.duration > 0 && (
-                    <div className="timeline-row timeline-row-indent">
-                      <span className="timeline-label">⏱ Duration</span>
-                      <span className="timeline-value accent-amber">{formatMinutes(b.duration)}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {entry.bioBreaks?.length > 0 && entry.bioBreaks.map((b, i) => (
-                <div key={b._id || i} className="bio-block">
-                  <div className="bio-block-header">🚻 Bio Break #{i + 1}</div>
-                  <div className="timeline-row timeline-row-indent">
-                    <span className="timeline-label">Start</span>
-                    <span className="timeline-value">{formatTime(b.breakIn)}</span>
-                  </div>
-                  <div className="timeline-row timeline-row-indent">
-                    <span className="timeline-label">End</span>
-                    <span className="timeline-value">
-                      {b.breakOut ? formatTime(b.breakOut) : <span className="live-tag-teal">BIO BREAK</span>}
-                    </span>
-                  </div>
-                  {b.duration > 0 && (
-                    <div className="timeline-row timeline-row-indent">
-                      <span className="timeline-label">⏱ Duration</span>
-                      <span className="timeline-value accent-teal">{formatMinutes(b.duration)}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              <div className="timeline-row">
-                <span className="timeline-label">🔴 Check Out</span>
-                <span className="timeline-value">{formatTime(entry.checkOut)}</span>
-              </div>
-
-              <div className="summary-row">
-                <div className="summary-chip">
-                  <div className="summary-chip-label">Hours Worked</div>
-                  <div className="summary-chip-value">{liveWorkedMins > 0 ? formatMinutes(liveWorkedMins) : "—"}</div>
-                </div>
-                <div className="summary-chip">
-                  <div className="summary-chip-label">Total Break</div>
-                  <div className="summary-chip-value amber">{entry.totalBreak > 0 ? formatMinutes(entry.totalBreak) : "—"}</div>
-                </div>
-                <div className="summary-chip">
-                  <div className="summary-chip-label">Bio Break</div>
-                  <div className="summary-chip-value teal">{entry.totalBioBreak > 0 ? formatMinutes(entry.totalBioBreak) : "—"}</div>
-                </div>
-                <div className="summary-chip">
-                  <div className="summary-chip-label">Breaks Taken</div>
-                  <div className="summary-chip-value blue">{entry.breaks?.length ?? 0}</div>
-                </div>
-              </div>
-
-              {/* ── SELFIE GALLERY ── */}
-              {entry.selfies && entry.selfies.length > 0 && (
-                <div className="selfie-gallery">
-                  <div className="selfie-gallery-title">📸 Today&apos;s Selfies</div>
-                  <div className="selfie-grid">
-                    {/* UPDATED: added index + onClick to open lightbox */}
-                    {entry.selfies.map((s, i) => (
-                      <div
-                        key={s._id}
-                        className="selfie-item"
-                        onClick={() => setLightbox({ selfies: entry.selfies!, index: i })}
-                      >
-                        <img src={s.url} alt={s.action} />
-                        <div className="selfie-badge">{actionLabels[s.action] ?? s.action}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+          {/* Historical empty state */}
+          {isHistorical && !historicalEntry && !fetchingHistorical && historicalMessage && (
+            <div className="historical-empty">
+              <div className="historical-empty-icon">📭</div>
+              <div className="historical-empty-text">{historicalMessage}</div>
+              <div className="historical-empty-sub">No attendance was recorded for this date.</div>
             </div>
           )}
         </div>
@@ -608,7 +743,6 @@ export default function TimeClockPage() {
                 className="action-modal-image"
                 onError={(e) => { e.currentTarget.src = "/images/logov3.png"; }}
               />
-
               <div className="action-modal-content">
                 <div className="action-modal-title">
                   {actionModal.action === "check-in" && "✅ CHECKED IN!"}
@@ -618,10 +752,8 @@ export default function TimeClockPage() {
                   {actionModal.action === "bio-break-out" && "✅ BACK TO WORK!"}
                   {actionModal.action === "check-out" && "👋 CHECKED OUT!"}
                 </div>
-
                 <div className="action-modal-message">{actionModal.message}</div>
 
-                {/* ── CAMERA / SELFIE SECTION ── */}
                 <div className="camera-section">
                   {!capturedPhoto && !cameraError && (
                     <>
@@ -641,39 +773,24 @@ export default function TimeClockPage() {
                       )}
                     </>
                   )}
-
                   {cameraError && (
                     <div className="camera-error-box">
                       <p className="camera-error-text">📵 {cameraError}</p>
-                      <p style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 10, color: "#4b5563", marginTop: 6, letterSpacing: 1 }}>
-                        SELFIE SKIPPED
-                      </p>
+                      <p style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 10, color: "#4b5563", marginTop: 6, letterSpacing: 1 }}>SELFIE SKIPPED</p>
                     </div>
                   )}
-
                   {capturedPhoto && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={capturedPhoto} alt="Your selfie" className="camera-captured-photo" />
                   )}
-
                   {(capturedPhoto || cameraReady) && (
                     <div className="camera-status-bar">
                       <span className={`camera-status-text ${uploadingPhoto ? "uploading" : photoUploaded ? "done" : ""}`}>
-                        {uploadingPhoto
-                          ? "⏳ UPLOADING..."
-                          : photoUploaded
-                            ? "✅ SELFIE SAVED"
-                            : capturedPhoto
-                              ? "📸 CAPTURED"
-                              : countdown !== null
-                                ? `📷 AUTO IN ${countdown}s`
-                                : "📷 READY"}
+                        {uploadingPhoto ? "⏳ UPLOADING..." : photoUploaded ? "✅ SELFIE SAVED" : capturedPhoto ? "📸 CAPTURED" : countdown !== null ? `📷 AUTO IN ${countdown}s` : "📷 READY"}
                       </span>
                       {capturedPhoto && !uploadingPhoto && (
                         <div className="camera-btn-row">
-                          <button className="btn-retake btn-camera-action" onClick={retakePhoto}>
-                            🔄 RETAKE
-                          </button>
+                          <button className="btn-retake btn-camera-action" onClick={retakePhoto}>🔄 RETAKE</button>
                         </div>
                       )}
                       {cameraReady && !capturedPhoto && (
@@ -682,33 +799,25 @@ export default function TimeClockPage() {
                             if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
                             setCountdown(null);
                             capturePhoto();
-                          }}>
-                            📸 SNAP NOW
-                          </button>
+                          }}>📸 SNAP NOW</button>
                         </div>
                       )}
                     </div>
                   )}
                 </div>
 
-                <button className="action-modal-close" onClick={closeModal}>
-                  ✕ CLOSE
-                </button>
+                <button className="action-modal-close" onClick={closeModal}>✕ CLOSE</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* ── SELFIE LIGHTBOX ── (ADDED) */}
+        {/* ── SELFIE LIGHTBOX ── */}
         {lightbox && (
           <div className="selfie-lightbox-overlay" onClick={() => setLightbox(null)}>
             <div className="selfie-lightbox-inner" onClick={e => e.stopPropagation()}>
               <button className="selfie-lightbox-close" onClick={() => setLightbox(null)}>✕</button>
-              <img
-                src={lightbox.selfies[lightbox.index].url}
-                alt="selfie"
-                className="selfie-lightbox-img"
-              />
+              <img src={lightbox.selfies[lightbox.index].url} alt="selfie" className="selfie-lightbox-img" />
               <div className="selfie-lightbox-footer">
                 <button
                   className="selfie-lightbox-nav"

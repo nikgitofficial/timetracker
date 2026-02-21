@@ -880,3 +880,163 @@ button:disabled { opacity: 0.2; cursor: not-allowed; filter: grayscale(0.5); }
   .action-modal-message { font-size: 15px; }
   .selfie-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
 }
+
+/* ── DATE PICKER SECTION ── (ADD TO BOTTOM OF TimeClock.css) */
+
+.date-picker-section {
+  margin-top: 20px;
+  padding: 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  position: relative;
+}
+
+.date-picker-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #4b5563;
+  margin-bottom: 10px;
+}
+
+.date-picker-icon {
+  font-size: 13px;
+}
+
+.date-picker-historical-badge {
+  margin-left: auto;
+  background: rgba(251,191,36,0.12);
+  border: 1px solid rgba(251,191,36,0.3);
+  color: #fbbf24;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 2px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  animation: pulse 2s infinite;
+}
+
+.date-picker-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.date-picker-input {
+  flex: 1;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 6px;
+  padding: 11px 14px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 14px;
+  color: #e8eaf0;
+  letter-spacing: 1px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  color-scheme: dark;
+}
+
+.date-picker-input:focus {
+  border-color: #00ff88;
+  background: rgba(0,255,136,0.05);
+  box-shadow: 0 0 0 3px rgba(0,255,136,0.08);
+}
+
+.date-picker-input::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(0.6);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.date-picker-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+.date-picker-today-btn {
+  background: rgba(0,200,80,0.12);
+  border: 1px solid rgba(0,255,100,0.25);
+  color: #00ff88;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 11px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-direction: row;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.date-picker-today-btn:hover {
+  background: rgba(0,200,80,0.2);
+  box-shadow: 0 0 12px rgba(0,255,136,0.15);
+}
+
+.date-picker-hint {
+  margin-top: 10px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: #fbbf24;
+  opacity: 0.7;
+  text-align: center;
+}
+
+/* Historical status bar variant */
+.status-bar-historical {
+  border-color: rgba(251,191,36,0.15);
+  background: rgba(251,191,36,0.04);
+}
+
+.status-historical-found {
+  color: #2dd4bf;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.status-historical-empty {
+  color: #6b7280;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+/* Historical empty state */
+.historical-empty {
+  margin-top: 28px;
+  padding: 36px 24px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  text-align: center;
+}
+
+.historical-empty-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.historical-empty-text {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: #4b5563;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.historical-empty-sub {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: #374151;
+}
