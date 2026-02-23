@@ -1360,3 +1360,224 @@ button:disabled { opacity: 0.2; cursor: not-allowed; filter: grayscale(0.5); }
   object-fit: cover;
   border-radius: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   UI/UX ADDITIONS — append to bottom of TimeClock.css
+   Nothing below changes existing rules, only adds new ones.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 1. BUTTON PRESS HAPTIC FEEL ──────────────────────────────
+   Adds a satisfying "pop" scale + glow flash on active press     */
+.btn-checkin:active:not(:disabled)  { box-shadow: 0 0 32px rgba(0,255,136,0.5);  transform: scale(0.95); }
+.btn-break:active:not(:disabled)    { box-shadow: 0 0 32px rgba(251,191,36,0.5); transform: scale(0.95); }
+.btn-return:active:not(:disabled)   { box-shadow: 0 0 32px rgba(96,165,250,0.5); transform: scale(0.95); }
+.btn-bio:active:not(:disabled)      { box-shadow: 0 0 32px rgba(45,212,191,0.5); transform: scale(0.95); }
+.btn-bio-return:active:not(:disabled){ box-shadow: 0 0 32px rgba(165,180,252,0.5);transform: scale(0.95); }
+.btn-checkout:active:not(:disabled) { box-shadow: 0 0 32px rgba(248,113,113,0.5);transform: scale(0.95); }
+
+/* ── 2. SCAN LINE OVERLAY on the card (pure CSS, no DOM change) */
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,255,136,0.012) 2px,
+    rgba(0,255,136,0.012) 4px
+  );
+  pointer-events: none;
+  border-radius: 8px;
+  z-index: 0;
+}
+
+/* Make card children sit above the scanline overlay */
+.card > * { position: relative; z-index: 1; }
+
+/* ── 3. STATUS BAR — colour-coded glow by status ─────────────  */
+.status-bar:has(.status-text:not(.status-idle)) {
+  border-color: rgba(0,255,136,0.2);
+  box-shadow: 0 0 16px rgba(0,255,136,0.06);
+  transition: border-color 0.4s, box-shadow 0.4s;
+}
+
+/* ── 4. TOAST — slide in from TOP with better animation ───────  */
+.toast {
+  animation: toastIn 0.35s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── 5. INPUT FOCUS — animated left border accent ─────────────  */
+.name-input {
+  border-left: 3px solid transparent;
+  transition: all 0.2s, border-left-color 0.2s;
+}
+.name-input:focus {
+  border-left-color: #00ff88;
+}
+
+/* ── 6. TIMELINE ROWS — hover highlight ───────────────────────  */
+.timeline-row {
+  transition: background 0.15s, padding-left 0.15s;
+  border-radius: 4px;
+  padding-left: 4px;
+}
+.timeline-row:hover {
+  background: rgba(255,255,255,0.03);
+  padding-left: 8px;
+}
+
+/* ── 7. SUMMARY CHIPS — hover lift + glow ─────────────────────  */
+.summary-chip {
+  transition: transform 0.15s, box-shadow 0.15s;
+  cursor: default;
+}
+.summary-chip:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,255,136,0.1);
+}
+
+/* ── 8. SELFIE ITEM — zoom + green border pulse on hover ──────  */
+.selfie-item::after {
+  content: '🔍';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  font-size: 22px;
+  opacity: 0;
+  transition: all 0.2s;
+  pointer-events: none;
+  z-index: 2;
+  filter: drop-shadow(0 0 8px rgba(0,255,136,0.8));
+}
+.selfie-item:hover::after {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+
+/* ── 9. EMPLOYEE PROFILE CARD — subtle shimmer on load ────────  */
+.emp-profile-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; right: auto;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0,255,136,0.06), transparent);
+  animation: epcShimmer 1.2s ease forwards;
+  pointer-events: none;
+  border-radius: 10px;
+}
+.emp-profile-card { overflow: hidden; }
+@keyframes epcShimmer {
+  from { left: -60%; }
+  to   { left: 120%; }
+}
+
+/* ── 10. CAMERA SECTION — green scanner line when live ─────────  */
+.camera-section::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00ff88, transparent);
+  top: 0;
+  animation: scanLine 3s ease-in-out infinite;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0.7;
+}
+@keyframes scanLine {
+  0%   { top: 0%;   opacity: 0.7; }
+  50%  { top: 95%;  opacity: 0.9; }
+  100% { top: 0%;   opacity: 0.7; }
+}
+
+/* ── 11. SNAP NOW / RETAKE BUTTONS — bigger tap target on mobile */
+@media (max-width: 480px) {
+  .btn-manual-capture,
+  .btn-retake {
+    padding: 12px 22px !important;
+    font-size: 12px !important;
+  }
+}
+
+/* ── 12. CHECK STATUS BUTTON — green accent on hover ──────────  */
+.check-status-btn:hover:not(:disabled) {
+  border-color: rgba(0,255,136,0.3);
+  color: #00ff88;
+  box-shadow: 0 0 12px rgba(0,255,136,0.08);
+}
+
+/* ── 13. DATE PICKER SECTION — hover lift ─────────────────────  */
+.date-picker-section {
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.date-picker-section:hover {
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 0 16px rgba(0,255,136,0.04);
+}
+
+/* ── 14. ACTION MODAL IMAGE — subtle zoom on load ─────────────  */
+.action-modal-image {
+  animation: imgZoomIn 0.5s ease;
+}
+@keyframes imgZoomIn {
+  from { transform: scale(1.04); }
+  to   { transform: scale(1); }
+}
+
+/* ── 15. LIGHTBOX NAV — scale on hover ────────────────────────  */
+.selfie-lightbox-nav:hover:not(:disabled) {
+  transform: scale(1.15);
+  transition: all 0.15s;
+}
+
+/* ── 16. FOOTER — fade in on load ─────────────────────────────  */
+.footer-link {
+  animation: footerFade 1.2s ease 0.5s both;
+}
+@keyframes footerFade {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 17. LIVE CLOCK — subtle text-shadow pulse ─────────────────  */
+.live-clock {
+  animation: flicker 8s infinite, clockGlow 4s ease-in-out infinite;
+}
+@keyframes clockGlow {
+  0%, 100% { text-shadow: 0 0 30px rgba(0,255,136,0.4); }
+  50%       { text-shadow: 0 0 50px rgba(0,255,136,0.65), 0 0 80px rgba(0,255,136,0.2); }
+}
+
+/* ── 18. BIO SECTION LABEL — glow on hover ────────────────────  */
+.bio-section-label:hover {
+  color: #2dd4bf;
+  transition: color 0.2s;
+}
+
+/* ── 19. NAME PICKER OPTION — slide-in stagger ────────────────  */
+.name-picker-option {
+  animation: optionSlideIn 0.25s ease both;
+}
+.name-picker-option:nth-child(1) { animation-delay: 0.05s; }
+.name-picker-option:nth-child(2) { animation-delay: 0.10s; }
+.name-picker-option:nth-child(3) { animation-delay: 0.15s; }
+.name-picker-option:nth-child(4) { animation-delay: 0.20s; }
+@keyframes optionSlideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── 20. FILTER CHIP — active ring pulse ──────────────────────  */
+.filter-chip-active {
+  animation: chipRing 1.5s ease-in-out infinite;
+}
+@keyframes chipRing {
+  0%, 100% { box-shadow: 0 0 10px rgba(0,255,136,0.2); }
+  50%       { box-shadow: 0 0 18px rgba(0,255,136,0.45); }
+}
