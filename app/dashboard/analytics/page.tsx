@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import "./Analytics.css"
 
 // ── TYPES ────────────────────────────────────────────────────────
 interface BreakSession {
@@ -24,6 +25,16 @@ interface TimeEntry {
   totalBreak: number;
   totalBioBreak: number;
   status: "checked-in" | "on-break" | "on-bio-break" | "returned" | "checked-out";
+}
+
+// ── ADDED: Employee roster type ──────────────────────────────────
+interface Employee {
+  _id: string;
+  employeeName: string;
+  email: string;
+  role: "OM" | "TL" | "Agent" | "Other";
+  status: "active" | "on-leave" | "absent" | "inactive";
+  campaign: string;
 }
 
 // ── HELPERS ──────────────────────────────────────────────────────
@@ -208,6 +219,9 @@ export default function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "employees" | "trends">("overview");
   const [dateRange, setDateRange] = useState<"7d" | "30d" | "all">("7d");
 
+  // ── ADDED: employee roster state ─────────────────────────────
+  const [roster, setRoster] = useState<Employee[]>([]);
+
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "include" })
       .then((r) => r.json())
@@ -217,6 +231,15 @@ export default function AnalyticsPage() {
       })
       .catch(() => router.push("/login"));
   }, [router]);
+
+  // ── ADDED: fetch roster alongside records ────────────────────
+  const fetchRoster = useCallback(async () => {
+    try {
+      const res = await fetch("/api/employees", { credentials: "include" });
+      const data = await res.json();
+      setRoster(data.employees || []);
+    } catch { /* silent */ }
+  }, []);
 
   const fetchAll = useCallback(async () => {
     if (!user?.email) return;
@@ -243,7 +266,12 @@ export default function AnalyticsPage() {
     finally { setLoading(false); }
   }, [user?.email, dateRange, router]);
 
-  useEffect(() => { if (user) fetchAll(); }, [user, fetchAll]);
+  useEffect(() => {
+    if (user) {
+      fetchAll();
+      fetchRoster(); // ── ADDED
+    }
+  }, [user, fetchAll, fetchRoster]);
 
   // ── DERIVED ANALYTICS ──────────────────────────────────────────
   const today = new Date().toISOString().split("T")[0];
@@ -266,14 +294,12 @@ export default function AnalyticsPage() {
     return { x: new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" }), y: +(avg / 60).toFixed(2) };
   });
 
-  // Bio break daily average
   const dailyBioBreak = last7.map((d) => {
     const dayRecs = records.filter((r) => r.date === d && (r.totalBioBreak || 0) > 0);
     const avg = dayRecs.length ? dayRecs.reduce((s, r) => s + (r.totalBioBreak || 0), 0) / dayRecs.length : 0;
     return { x: new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" }), y: +(avg / 60).toFixed(2) };
   });
 
-  // Status distribution — now includes on-bio-break
   const todayRecs = records.filter((r) => r.date === today);
   const statusCounts = {
     "checked-in": todayRecs.filter((r) => r.status === "checked-in").length,
@@ -284,7 +310,6 @@ export default function AnalyticsPage() {
   };
   const todayTotal = todayRecs.length;
 
-  // Employee leaderboard — now includes bio break data
   const empMap: Record<string, {
     name: string;
     email: string;
@@ -297,15 +322,7 @@ export default function AnalyticsPage() {
 
   records.forEach((r) => {
     if (!empMap[r.email]) {
-      empMap[r.email] = {
-        name: r.employeeName,
-        email: r.email,
-        worked: 0,
-        days: new Set(),
-        breaks: 0,
-        bioBreaks: 0,
-        totalBioBreak: 0,
-      };
+      empMap[r.email] = { name: r.employeeName, email: r.email, worked: 0, days: new Set(), breaks: 0, bioBreaks: 0, totalBioBreak: 0 };
     }
     empMap[r.email].worked += r.totalWorked || 0;
     empMap[r.email].days.add(r.date);
@@ -334,6 +351,24 @@ export default function AnalyticsPage() {
   const totalBreakSessions = records.reduce((s, r) => s + (r.breaks?.length || 0), 0);
   const totalBioBreakSessions = records.reduce((s, r) => s + (r.bioBreaks?.length || 0), 0);
 
+  // ── ADDED: roster-derived stats ──────────────────────────────
+  const rosterTotal    = roster.length;
+  const rosterActive   = roster.filter(e => e.status === "active").length;
+  const rosterOnLeave  = roster.filter(e => e.status === "on-leave" || e.status === "absent").length;
+  const rosterInactive = roster.filter(e => e.status === "inactive").length;
+  const rosterByRole   = {
+    OM:    roster.filter(e => e.role === "OM").length,
+    TL:    roster.filter(e => e.role === "TL").length,
+    Agent: roster.filter(e => e.role === "Agent").length,
+    Other: roster.filter(e => e.role === "Other").length,
+  };
+  // Employees on roster who clocked in today
+  const rosterEmailSet = new Set(roster.map(e => e.email));
+  const todayPresentFromRoster = todayRecs.filter(r => rosterEmailSet.has(r.email));
+  const attendanceRate = rosterActive > 0
+    ? Math.round((new Set(todayPresentFromRoster.map(r => r.email)).size / rosterActive) * 100)
+    : 0;
+
   function empSparkline(email: string) {
     return last7.map((d) => {
       const r = records.find((r) => r.date === d && r.email === email);
@@ -346,226 +381,11 @@ export default function AnalyticsPage() {
     y: hourBuckets[i + 6],
   }));
 
-  // Most bio breaks employee
   const mostBioBreaksEmp = [...employees].sort((a, b) => b.bioBreaks - a.bioBreaks)[0];
 
   return (
     <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;900&family=DM+Mono:wght@400;500&display=swap');
-
-        :root {
-          --text: #1a1916;
-          --text-muted: #57534e;
-          --text-light: #a8a29e;
-          --surface: #ffffff;
-          --surface-alt: #f7f5f2;
-          --border: #e8e6e1;
-          --border-strong: #c7c3bc;
-          --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-          --radius: 10px;
-          --radius-sm: 6px;
-          --green: #16a34a;
-          --amber: #d97706;
-          --blue: #2563eb;
-          --teal: #0d9488;
-          --red: #dc2626;
-        }
-
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #f7f5f2; color: var(--text); font-family: 'DM Mono', monospace; }
-
-        .an-wrap { max-width: 1200px; margin: 0 auto; padding: 28px 20px 80px; min-height: 100vh; }
-        @media (min-width: 768px) { .an-wrap { padding: 32px 32px 60px; } }
-
-        .an-topbar {
-          display: flex; align-items: center; justify-content: space-between;
-          flex-wrap: wrap; gap: 12px; margin-bottom: 28px;
-        }
-        .an-brand { display: flex; align-items: center; gap: 10px; }
-
-        .an-back {
-          display: inline-flex; align-items: center; gap: 5px;
-          text-decoration: none; font-family: 'DM Mono', monospace;
-          font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
-          color: var(--text-light); border: 1.5px solid var(--border);
-          border-radius: var(--radius-sm); padding: 6px 12px;
-          background: var(--surface); transition: all 0.15s; box-shadow: var(--shadow);
-        }
-        .an-back:hover { color: var(--text); border-color: var(--border-strong); }
-
-        .an-title {
-          font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: clamp(22px, 4vw, 30px); font-weight: 900;
-          letter-spacing: -0.8px; color: var(--text); line-height: 1;
-        }
-        .an-title span { color: var(--green); }
-        .an-subtitle { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); margin-top: 3px; }
-
-        .an-topbar-right { display: flex; align-items: center; gap: 8px; }
-
-        .range-toggle {
-          display: inline-flex; border: 1.5px solid var(--border);
-          border-radius: var(--radius-sm); overflow: hidden;
-          background: var(--surface); box-shadow: var(--shadow);
-        }
-        .range-btn {
-          padding: 6px 14px; font-family: 'DM Mono', monospace;
-          font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
-          background: transparent; border: none; cursor: pointer;
-          color: var(--text-light); transition: all 0.15s;
-          border-right: 1.5px solid var(--border);
-        }
-        .range-btn:last-child { border-right: none; }
-        .range-btn.active { background: var(--text); color: #fff; }
-        .range-btn:hover:not(.active) { background: var(--surface-alt); color: var(--text); }
-
-        .an-tabs {
-          display: flex; gap: 2px; border-bottom: 2px solid var(--border); margin-bottom: 24px;
-        }
-        .an-tab {
-          padding: 10px 20px; font-family: 'DM Mono', monospace;
-          font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
-          background: transparent; border: none; cursor: pointer;
-          color: var(--text-light); border-bottom: 2px solid transparent;
-          margin-bottom: -2px; transition: all 0.15s;
-        }
-        .an-tab.active { color: var(--text); border-bottom-color: var(--text); }
-        .an-tab:hover:not(.active) { color: var(--text-muted); }
-
-        .kpi-strip {
-          display: grid; grid-template-columns: repeat(2, 1fr);
-          gap: 10px; margin-bottom: 20px;
-        }
-        @media (min-width: 640px) { .kpi-strip { grid-template-columns: repeat(4, 1fr); } }
-
-        .kpi-card {
-          background: var(--surface); border: 1.5px solid var(--border);
-          border-radius: var(--radius); padding: 18px 18px 20px;
-          box-shadow: var(--shadow); position: relative; overflow: hidden;
-          transition: transform 0.15s;
-        }
-        .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-        .kpi-card::after {
-          content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
-        }
-        .kpi-card.k-green::after { background: var(--green); }
-        .kpi-card.k-amber::after { background: var(--amber); }
-        .kpi-card.k-blue::after  { background: var(--blue); }
-        .kpi-card.k-teal::after  { background: var(--teal); }
-        .kpi-card.k-red::after   { background: var(--red); }
-
-        .kpi-icon { font-size: 20px; margin-bottom: 8px; }
-        .kpi-label { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); margin-bottom: 6px; }
-        .kpi-value {
-          font-family: 'Cabinet Grotesk', sans-serif;
-          font-size: clamp(24px, 3.5vw, 32px); font-weight: 900;
-          letter-spacing: -1.5px; color: var(--text); line-height: 1;
-        }
-        .kpi-card.k-green .kpi-value { color: var(--green); }
-        .kpi-card.k-amber .kpi-value { color: var(--amber); }
-        .kpi-card.k-blue  .kpi-value { color: var(--blue); }
-        .kpi-card.k-teal  .kpi-value { color: var(--teal); }
-        .kpi-sub { font-size: 10px; color: var(--text-light); margin-top: 4px; letter-spacing: 0.5px; }
-
-        .grid-2 { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
-        @media (min-width: 768px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
-
-        .grid-3 { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
-        @media (min-width: 900px) { .grid-3 { grid-template-columns: 2fr 1fr; } }
-
-        .chart-card {
-          background: var(--surface); border: 1.5px solid var(--border);
-          border-radius: var(--radius); padding: 20px 20px 16px; box-shadow: var(--shadow);
-        }
-        .chart-card-title {
-          font-family: 'DM Mono', monospace; font-size: 10px;
-          letter-spacing: 1.5px; text-transform: uppercase;
-          color: var(--text-muted); margin-bottom: 16px;
-          display: flex; align-items: center; gap: 8px;
-        }
-        .chart-card-title-icon { font-size: 14px; }
-        .chart-wrap { width: 100%; }
-        .chart-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-light); margin-bottom: 6px; }
-
-        /* Bio break badge */
-        .bio-tag {
-          display: inline-flex; align-items: center; gap: 3px;
-          background: #f0fdfa; border: 1px solid #99f6e4;
-          border-radius: 4px; padding: 1px 6px;
-          font-family: 'DM Mono', monospace; font-size: 9px;
-          color: #0f766e; font-weight: 600; letter-spacing: 0.3px;
-        }
-
-        /* ── DONUT SECTION ── */
-        .donut-section { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
-        .donut-legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 10px; }
-        .legend-item { display: flex; align-items: center; gap: 10px; }
-        .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-        .legend-label { font-size: 11px; color: var(--text-muted); flex: 1; }
-        .legend-count { font-family: 'Cabinet Grotesk', sans-serif; font-size: 16px; font-weight: 900; color: var(--text); letter-spacing: -0.5px; }
-        .legend-pct { font-size: 10px; color: var(--text-light); }
-
-        /* ── EMPLOYEE LIST ── */
-        .emp-list { display: flex; flex-direction: column; gap: 14px; }
-        .emp-row { display: flex; align-items: center; gap: 12px; }
-        .emp-rank {
-          font-family: 'Cabinet Grotesk', sans-serif; font-size: 16px;
-          font-weight: 900; color: var(--border-strong);
-          width: 24px; text-align: center; flex-shrink: 0;
-        }
-        .emp-row:first-child .emp-rank { color: #d97706; }
-        .emp-row:nth-child(2) .emp-rank { color: #78716c; }
-        .emp-row:nth-child(3) .emp-rank { color: #92400e; }
-        .emp-info { flex: 1; min-width: 0; }
-        .emp-name {
-          font-family: 'Cabinet Grotesk', sans-serif; font-size: 14px;
-          font-weight: 700; color: var(--text); letter-spacing: -0.3px;
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .emp-meta { font-size: 10px; color: var(--text-light); letter-spacing: 0.5px; margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-        .emp-bar-wrap { flex: 1; }
-        .emp-hours {
-          font-family: 'Cabinet Grotesk', sans-serif; font-size: 15px;
-          font-weight: 900; color: var(--green); letter-spacing: -0.5px;
-          flex-shrink: 0; width: 54px; text-align: right;
-        }
-        .emp-spark { flex-shrink: 0; }
-
-        /* ── HOUR HEATMAP ── */
-        .hour-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
-        .hour-cell { border-radius: 4px; padding: 6px 2px; text-align: center; font-size: 8.5px; color: var(--text-light); transition: all 0.2s; position: relative; }
-        .hour-cell-label { font-size: 7.5px; color: var(--text-light); margin-bottom: 2px; font-family: 'DM Mono', monospace; }
-        .hour-cell-count { font-family: 'Cabinet Grotesk', sans-serif; font-size: 13px; font-weight: 900; color: var(--text); }
-
-        /* ── INSIGHTS ── */
-        .insights-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-        .insight-pill {
-          display: flex; align-items: center; gap: 8px;
-          background: var(--surface); border: 1.5px solid var(--border);
-          border-radius: 8px; padding: 10px 14px; box-shadow: var(--shadow);
-          flex: 1; min-width: 160px;
-        }
-        .insight-icon { font-size: 18px; }
-        .insight-text { flex: 1; }
-        .insight-title { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); }
-        .insight-val { font-family: 'Cabinet Grotesk', sans-serif; font-size: 16px; font-weight: 900; color: var(--text); letter-spacing: -0.5px; }
-
-        /* ── LOADING ── */
-        .an-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px; gap: 14px; }
-        .loading-dots { display: inline-flex; gap: 6px; }
-        .loading-dots span { width: 8px; height: 8px; background: var(--border-strong); border-radius: 50%; animation: ld 0.8s infinite; }
-        .loading-dots span:nth-child(2) { animation-delay: 0.15s; }
-        .loading-dots span:nth-child(3) { animation-delay: 0.30s; }
-        @keyframes ld { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; } 40% { transform: scale(1); opacity: 1; } }
-        .loading-text { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-light); }
-
-        @media (max-width: 500px) {
-          .range-btn { padding: 6px 10px; font-size: 9px; }
-          .an-tab { padding: 8px 12px; font-size: 10px; }
-          .hour-grid { grid-template-columns: repeat(4, 1fr); }
-        }
-      `}</style>
+     
 
       <div className="an-wrap">
         {/* Top Bar */}
@@ -607,6 +427,40 @@ export default function AnalyticsPage() {
             {/* ── OVERVIEW TAB ── */}
             {activeTab === "overview" && (
               <>
+                {/* ── ADDED: Roster KPI strip ── */}
+                <div className="kpi-strip-5">
+                  <div className="kpi-card k-blue">
+                    <div className="kpi-icon">👥</div>
+                    <div className="kpi-label">Total Roster</div>
+                    <div className="kpi-value">{rosterTotal}</div>
+                    <div className="kpi-sub">registered employees</div>
+                  </div>
+                  <div className="kpi-card k-green">
+                    <div className="kpi-icon">✅</div>
+                    <div className="kpi-label">Active</div>
+                    <div className="kpi-value">{rosterActive}</div>
+                    <div className="kpi-sub">{rosterTotal > 0 ? Math.round((rosterActive / rosterTotal) * 100) : 0}% of roster</div>
+                  </div>
+                  <div className="kpi-card k-amber">
+                    <div className="kpi-icon">🌴</div>
+                    <div className="kpi-label">On Leave / Absent</div>
+                    <div className="kpi-value">{rosterOnLeave}</div>
+                    <div className="kpi-sub">{rosterTotal > 0 ? Math.round((rosterOnLeave / rosterTotal) * 100) : 0}% of roster</div>
+                  </div>
+                  <div className="kpi-card k-gray">
+                    <div className="kpi-icon">💤</div>
+                    <div className="kpi-label">Inactive</div>
+                    <div className="kpi-value" style={{ color: "var(--text-muted)" }}>{rosterInactive}</div>
+                    <div className="kpi-sub">not clocking in</div>
+                  </div>
+                  <div className="kpi-card k-teal">
+                    <div className="kpi-icon">📅</div>
+                    <div className="kpi-label">Today's Attendance</div>
+                    <div className="kpi-value">{attendanceRate}%</div>
+                    <div className="kpi-sub">{new Set(todayPresentFromRoster.map(r => r.email)).size} of {rosterActive} active</div>
+                  </div>
+                </div>
+
                 <div className="kpi-strip">
                   <div className="kpi-card k-green">
                     <div className="kpi-icon">⏱</div>
@@ -631,6 +485,23 @@ export default function AnalyticsPage() {
                     <div className="kpi-label">Peak Check-in Hour</div>
                     <div className="kpi-value">{peakHour > 0 ? `${peakHour}:00` : "—"}</div>
                     <div className="kpi-sub">{hourBuckets[peakHour]} check-ins</div>
+                  </div>
+                </div>
+
+                {/* ── ADDED: Today's attendance bar ── */}
+                <div className="attendance-card">
+                  <div className="attendance-title">
+                    <span>📋</span> Today's Attendance Rate
+                  </div>
+                  <div className="attendance-bar-wrap">
+                    <div className="attendance-bar-fill" style={{
+                      width: `${attendanceRate}%`,
+                      background: attendanceRate >= 80 ? "#16a34a" : attendanceRate >= 50 ? "#d97706" : "#dc2626",
+                    }} />
+                  </div>
+                  <div className="attendance-meta">
+                    <span>{new Set(todayPresentFromRoster.map(r => r.email)).size} clocked in today</span>
+                    <span>{attendanceRate}% of {rosterActive} active employees</span>
                   </div>
                 </div>
 
@@ -724,11 +595,11 @@ export default function AnalyticsPage() {
                       <div style={{ width: 130, flexShrink: 0 }}>
                         <DonutChart
                           segments={[
-                            { label: "Working",  value: statusCounts["checked-in"],   color: "#16a34a" },
-                            { label: "On Break", value: statusCounts["on-break"],     color: "#d97706" },
-                            { label: "Bio Break",value: statusCounts["on-bio-break"], color: "#0d9488" },
-                            { label: "Returned", value: statusCounts["returned"],     color: "#2563eb" },
-                            { label: "Done",     value: statusCounts["checked-out"],  color: "#e8e6e1" },
+                            { label: "Working",   value: statusCounts["checked-in"],   color: "#16a34a" },
+                            { label: "On Break",  value: statusCounts["on-break"],     color: "#d97706" },
+                            { label: "Bio Break", value: statusCounts["on-bio-break"], color: "#0d9488" },
+                            { label: "Returned",  value: statusCounts["returned"],     color: "#2563eb" },
+                            { label: "Done",      value: statusCounts["checked-out"],  color: "#e8e6e1" },
                           ]}
                           total={todayTotal || 1}
                           centerLabel={String(todayTotal)}
@@ -794,6 +665,57 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
 
+                {/* ── ADDED: Roster breakdown card ── */}
+                <div className="chart-card" style={{ marginBottom: 16 }}>
+                  <div className="chart-card-title">
+                    <span className="chart-card-title-icon">🗂️</span>
+                    Roster Breakdown — {rosterTotal} Total Employees
+                  </div>
+                  <div className="role-breakdown">
+                    <div className="role-tile">
+                      <div className="role-tile-val" style={{ color: "#7c3aed" }}>{rosterByRole.OM}</div>
+                      <div className="role-tile-lbl">Operations Manager</div>
+                    </div>
+                    <div className="role-tile">
+                      <div className="role-tile-val" style={{ color: "#1d4ed8" }}>{rosterByRole.TL}</div>
+                      <div className="role-tile-lbl">Team Lead</div>
+                    </div>
+                    <div className="role-tile">
+                      <div className="role-tile-val" style={{ color: "#15803d" }}>{rosterByRole.Agent}</div>
+                      <div className="role-tile-lbl">Agent</div>
+                    </div>
+                    <div className="role-tile">
+                      <div className="role-tile-val" style={{ color: "var(--text-muted)" }}>{rosterByRole.Other}</div>
+                      <div className="role-tile-lbl">Other</div>
+                    </div>
+                  </div>
+                  {/* ── ADDED: Status breakdown bar ── */}
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ fontSize: 9, letterSpacing: 1.5, textTransform: "uppercase", color: "var(--text-light)", marginBottom: 8 }}>Status Distribution</div>
+                    <div style={{ display: "flex", height: 10, borderRadius: 6, overflow: "hidden", gap: 1 }}>
+                      {rosterTotal > 0 && [
+                        { val: rosterActive,   color: "#16a34a", label: "Active" },
+                        { val: rosterOnLeave,  color: "#d97706", label: "On Leave/Absent" },
+                        { val: rosterInactive, color: "#e8e6e1", label: "Inactive" },
+                      ].map((s, i) => (
+                        <div key={i} style={{ width: `${(s.val / rosterTotal) * 100}%`, background: s.color, transition: "width 0.8s" }} title={`${s.label}: ${s.val}`} />
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 16, marginTop: 6, flexWrap: "wrap" }}>
+                      {[
+                        { val: rosterActive,   color: "#16a34a", label: "Active" },
+                        { val: rosterOnLeave,  color: "#d97706", label: "Leave/Absent" },
+                        { val: rosterInactive, color: "#a8a29e", label: "Inactive" },
+                      ].map((s, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--text-muted)" }}>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
+                          {s.label}: <strong style={{ color: "var(--text)" }}>{s.val}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="chart-card" style={{ marginBottom: 16 }}>
                   <div className="chart-card-title">
                     <span className="chart-card-title-icon">🏅</span>
@@ -803,32 +725,46 @@ export default function AnalyticsPage() {
                     <div style={{ textAlign: "center", padding: "40px", color: "var(--text-light)", fontSize: 12 }}>No employee data in this range</div>
                   ) : (
                     <div className="emp-list">
-                      {employees.slice(0, 10).map((e, i) => (
-                        <div key={e.email} className="emp-row">
-                          <span className="emp-rank">#{i + 1}</span>
-                          <div className="emp-info">
-                            <div className="emp-name">{e.name}</div>
-                            <div className="emp-meta">
-                              <span>{e.days.size} day{e.days.size !== 1 ? "s" : ""}</span>
-                              <span>·</span>
-                              <span>{e.breaks} break{e.breaks !== 1 ? "s" : ""}</span>
-                              {e.bioBreaks > 0 && (
-                                <>
-                                  <span>·</span>
-                                  <span className="bio-tag">🚻 {e.bioBreaks} bio</span>
-                                </>
-                              )}
+                      {employees.slice(0, 10).map((e, i) => {
+                        // ── ADDED: enrich with roster role if available ──
+                        const rosterEmp = roster.find(r => r.email === e.email);
+                        return (
+                          <div key={e.email} className="emp-row">
+                            <span className="emp-rank">#{i + 1}</span>
+                            <div className="emp-info">
+                              <div className="emp-name">{e.name}</div>
+                              <div className="emp-meta">
+                                {rosterEmp && (
+                                  <span style={{
+                                    background: rosterEmp.role === "OM" ? "#ede9fe" : rosterEmp.role === "TL" ? "#eff6ff" : rosterEmp.role === "Agent" ? "#f0fdf4" : "#f5f4f1",
+                                    color: rosterEmp.role === "OM" ? "#6d28d9" : rosterEmp.role === "TL" ? "#1d4ed8" : rosterEmp.role === "Agent" ? "#15803d" : "#6b7280",
+                                    border: `1px solid ${rosterEmp.role === "OM" ? "#c4b5fd" : rosterEmp.role === "TL" ? "#93c5fd" : rosterEmp.role === "Agent" ? "#86efac" : "#e5e7eb"}`,
+                                    borderRadius: 20, padding: "1px 6px",
+                                    fontSize: 9, fontWeight: 700, letterSpacing: 0.3,
+                                  }}>{rosterEmp.role}</span>
+                                )}
+                                {rosterEmp?.campaign && <span>· {rosterEmp.campaign}</span>}
+                                <span>{e.days.size} day{e.days.size !== 1 ? "s" : ""}</span>
+                                <span>·</span>
+                                <span>{e.breaks} break{e.breaks !== 1 ? "s" : ""}</span>
+                                {e.bioBreaks > 0 && (
+                                  <>
+                                    <span>·</span>
+                                    <span className="bio-tag">🚻 {e.bioBreaks} bio</span>
+                                  </>
+                                )}
+                              </div>
+                              <div style={{ marginTop: 6 }}>
+                                <HBar value={e.worked} max={maxWorked} color={i === 0 ? "#d97706" : "#16a34a"} />
+                              </div>
                             </div>
-                            <div style={{ marginTop: 6 }}>
-                              <HBar value={e.worked} max={maxWorked} color={i === 0 ? "#d97706" : "#16a34a"} />
-                            </div>
+                            <span className="emp-spark">
+                              <Sparkline data={empSparkline(e.email)} color={i === 0 ? "#d97706" : "#16a34a"} />
+                            </span>
+                            <span className="emp-hours">{fmtMins(e.worked)}</span>
                           </div>
-                          <span className="emp-spark">
-                            <Sparkline data={empSparkline(e.email)} color={i === 0 ? "#d97706" : "#16a34a"} />
-                          </span>
-                          <span className="emp-hours">{fmtMins(e.worked)}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -955,7 +891,6 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
 
-                {/* Work vs Break vs Bio Break stacked */}
                 <div className="chart-card">
                   <div className="chart-card-title">
                     <span className="chart-card-title-icon">⚖️</span>
@@ -985,15 +920,10 @@ export default function AnalyticsPage() {
                         const totalH = workedH + brkH + bioH;
                         return (
                           <g key={d}>
-                            {/* Bio bar (top) */}
                             <rect x={x} y={pad.top + chartH - totalH} width={barW} height={bioH} fill="#0d9488" rx="2" opacity="0.85" />
-                            {/* Break bar (middle) */}
                             <rect x={x} y={pad.top + chartH - workedH - brkH} width={barW} height={brkH} fill="#fbbf24" rx="0" opacity="0.85" />
-                            {/* Worked bar (bottom) */}
                             <rect x={x} y={pad.top + chartH - workedH} width={barW} height={workedH} fill="#16a34a" rx="2" opacity="0.9" />
-                            <text x={x + barW / 2} y={H - 26} textAnchor="middle" fontSize="9" fill="#78716c" fontFamily="DM Mono, monospace">
-                              {label}
-                            </text>
+                            <text x={x + barW / 2} y={H - 26} textAnchor="middle" fontSize="9" fill="#78716c" fontFamily="DM Mono, monospace">{label}</text>
                           </g>
                         );
                       })}

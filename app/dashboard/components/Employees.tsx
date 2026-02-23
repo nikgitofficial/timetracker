@@ -3,8 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import "./Employees.css";
 
-// ── reuse del-modal + stat-card styles from DashboardHome.css ──
-
 interface Employee {
   _id: string;
   ownerEmail: string;
@@ -59,24 +57,28 @@ const BLANK: Omit<Employee, "_id" | "ownerEmail" | "createdAt" | "profilePic"> =
   status: "active", birthdate: "", notes: "",
 };
 
+const PAGE_SIZE = 20;
+
 export default function Employees({ user: _user }: { user: User }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
-  const [modalOpen, setModalOpen] = useState(false);
+  // ── Modals ──────────────────────────────────────────────────────
+  const [addEditOpen, setAddEditOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [form, setForm] = useState({ ...BLANK });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [viewTarget, setViewTarget] = useState<Employee | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
-  const [uploadingFor, setUploadingFor] = useState<string | null>(null); // employee _id
-
+  const [uploadingFor, setUploadingFor] = useState<string | null>(null);
   const modalFileRef = useRef<HTMLInputElement>(null);
 
   // ── Fetch ──────────────────────────────────────────────────────
@@ -92,12 +94,15 @@ export default function Employees({ user: _user }: { user: User }) {
 
   useEffect(() => { fetchEmployees(); }, [fetchEmployees]);
 
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [search, roleFilter, statusFilter]);
+
   // ── Modal helpers ──────────────────────────────────────────────
   const openAdd = () => {
     setEditing(null);
     setForm({ ...BLANK });
     setFormError("");
-    setModalOpen(true);
+    setAddEditOpen(true);
   };
 
   const openEdit = (emp: Employee) => {
@@ -112,12 +117,13 @@ export default function Employees({ user: _user }: { user: User }) {
       notes: emp.notes,
     });
     setFormError("");
-    setModalOpen(true);
+    setViewTarget(null);
+    setAddEditOpen(true);
   };
 
-  const closeModal = () => { setModalOpen(false); setEditing(null); setFormError(""); };
+  const closeAddEdit = () => { setAddEditOpen(false); setEditing(null); setFormError(""); };
 
-  // ── Save (add or update) ───────────────────────────────────────
+  // ── Save ────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!form.employeeName.trim()) { setFormError("Full name is required."); return; }
     if (!form.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
@@ -136,13 +142,13 @@ export default function Employees({ user: _user }: { user: User }) {
       });
       const data = await res.json();
       if (!res.ok) { setFormError(data.error || "Save failed."); return; }
-      closeModal();
+      closeAddEdit();
       fetchEmployees();
     } catch { setFormError("Network error. Please try again."); }
     finally { setSaving(false); }
   };
 
-  // ── Delete ─────────────────────────────────────────────────────
+  // ── Delete ──────────────────────────────────────────────────────
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     const emp = deleteTarget;
@@ -160,7 +166,7 @@ export default function Employees({ user: _user }: { user: User }) {
     finally { setDeleting(null); }
   };
 
-  // ── Photo upload ───────────────────────────────────────────────
+  // ── Photo upload ────────────────────────────────────────────────
   const handlePhotoUpload = async (emp: Employee, file: File) => {
     setUploadingFor(emp._id);
     try {
@@ -171,14 +177,14 @@ export default function Employees({ user: _user }: { user: User }) {
       const data = await res.json();
       if (res.ok) {
         setEmployees(prev => prev.map(e => e._id === emp._id ? { ...e, profilePic: data.profilePic } : e));
-        // Update editing state if modal is open for this employee
         if (editing?._id === emp._id) setEditing(prev => prev ? { ...prev, profilePic: data.profilePic } : prev);
+        if (viewTarget?._id === emp._id) setViewTarget(prev => prev ? { ...prev, profilePic: data.profilePic } : prev);
       }
     } catch { /* silent */ }
     finally { setUploadingFor(null); }
   };
 
-  // ── Derived data ───────────────────────────────────────────────
+  // ── Derived ─────────────────────────────────────────────────────
   const filtered = employees.filter(emp => {
     const q = search.toLowerCase();
     const matchSearch = !q ||
@@ -190,17 +196,96 @@ export default function Employees({ user: _user }: { user: User }) {
     return matchSearch && matchRole && matchStatus;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const totalActive = employees.filter(e => e.status === "active").length;
   const totalOnLeave = employees.filter(e => e.status === "on-leave" || e.status === "absent").length;
   const totalOM = employees.filter(e => e.role === "OM").length;
   const totalTL = employees.filter(e => e.role === "TL").length;
   const birthdays = employees.filter(e => isBirthdayToday(e.birthdate));
 
-  // ── Render ─────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────
   return (
     <div className="emp-wrap">
 
-      {/* ── DELETE CONFIRM ── */}
+      {/* ── VIEW MODAL ── */}
+      {viewTarget && (
+        <div className="emp-modal-overlay" onClick={() => setViewTarget(null)}>
+          <div className="emp-modal emp-view-modal" onClick={e => e.stopPropagation()}>
+            <div className="emp-modal-header">
+              <span className="emp-modal-title">Employee Profile</span>
+              <button className="emp-modal-close" onClick={() => setViewTarget(null)}>✕</button>
+            </div>
+            <div className="emp-view-body">
+              {/* Avatar + identity */}
+              <div className="emp-view-top">
+                <div className="emp-view-avatar-wrap">
+                  <img
+                    src={avatarUrl(viewTarget.employeeName, viewTarget.profilePic)}
+                    alt={viewTarget.employeeName}
+                    className="emp-view-avatar"
+                  />
+                  {isBirthdayToday(viewTarget.birthdate) && (
+                    <span className="emp-view-bday-tag">🎂 Birthday!</span>
+                  )}
+                  <label className="emp-view-photo-btn" title="Change photo">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      disabled={uploadingFor === viewTarget._id}
+                      onChange={e => e.target.files?.[0] && handlePhotoUpload(viewTarget, e.target.files[0])}
+                    />
+                    {uploadingFor === viewTarget._id ? "⏳" : "📷"}
+                  </label>
+                </div>
+                <div className="emp-view-identity">
+                  <div className="emp-view-name">{viewTarget.employeeName}</div>
+                  <div className="emp-view-email">{viewTarget.email}</div>
+                  <div className="emp-view-badges">
+                    <span className={`emp-role-badge emp-role-${viewTarget.role}`}>{ROLE_LABELS[viewTarget.role]}</span>
+                    <span className={`emp-status-badge emp-status-${viewTarget.status}`}>{STATUS_LABELS[viewTarget.status]}</span>
+                  </div>
+                </div>
+              </div>
+              {/* Details grid */}
+              <div className="emp-view-grid">
+                <div className="emp-view-item">
+                  <span className="emp-view-lbl">Campaign</span>
+                  <span className="emp-view-val">{viewTarget.campaign || "—"}</span>
+                </div>
+                <div className="emp-view-item">
+                  <span className="emp-view-lbl">Age</span>
+                  <span className="emp-view-val">{calcAge(viewTarget.birthdate)}</span>
+                </div>
+                <div className="emp-view-item emp-view-full">
+                  <span className="emp-view-lbl">Birthdate</span>
+                  <span className="emp-view-val">{formatBirthdate(viewTarget.birthdate)}</span>
+                </div>
+                <div className="emp-view-item emp-view-full">
+                  <span className="emp-view-lbl">Member Since</span>
+                  <span className="emp-view-val">
+                    {new Date(viewTarget.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+                  </span>
+                </div>
+                {viewTarget.notes && (
+                  <div className="emp-view-item emp-view-full">
+                    <span className="emp-view-lbl">Notes</span>
+                    <span className="emp-view-val" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{viewTarget.notes}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="emp-modal-footer">
+              <button className="btn-emp-cancel" onClick={() => setViewTarget(null)}>Close</button>
+              <button className="btn-emp-save" onClick={() => openEdit(viewTarget)}>✏ Edit Employee</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE MODAL ── */}
       {deleteTarget && (
         <div className="del-modal-overlay" onClick={() => setDeleteTarget(null)}>
           <div className="del-modal" onClick={e => e.stopPropagation()}>
@@ -218,11 +303,7 @@ export default function Employees({ user: _user }: { user: User }) {
             </div>
             <div className="del-modal-actions">
               <button className="del-modal-cancel" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button
-                className="del-modal-confirm"
-                disabled={!!deleting}
-                onClick={confirmDelete}
-              >
+              <button className="del-modal-confirm" disabled={!!deleting} onClick={confirmDelete}>
                 {deleting ? "Removing…" : "🗑 Remove"}
               </button>
             </div>
@@ -231,15 +312,13 @@ export default function Employees({ user: _user }: { user: User }) {
       )}
 
       {/* ── ADD / EDIT MODAL ── */}
-      {modalOpen && (
-        <div className="emp-modal-overlay" onClick={closeModal}>
+      {addEditOpen && (
+        <div className="emp-modal-overlay" onClick={closeAddEdit}>
           <div className="emp-modal" onClick={e => e.stopPropagation()}>
             <div className="emp-modal-header">
               <span className="emp-modal-title">{editing ? "Edit Employee" : "Add Employee"}</span>
-              <button className="emp-modal-close" onClick={closeModal}>✕</button>
+              <button className="emp-modal-close" onClick={closeAddEdit}>✕</button>
             </div>
-
-            {/* Avatar preview */}
             <div className="emp-modal-avatar-section">
               <img
                 src={avatarUrl(form.employeeName || "EMP", editing?.profilePic)}
@@ -248,9 +327,7 @@ export default function Employees({ user: _user }: { user: User }) {
               />
               <div className="emp-modal-avatar-hint">
                 {editing
-                  ? uploadingFor === editing._id
-                    ? "⏳ Uploading…"
-                    : "Click below to change profile photo"
+                  ? uploadingFor === editing._id ? "⏳ Uploading…" : "Click below to change profile photo"
                   : "Save first to upload a profile photo"}
               </div>
               {editing && (
@@ -267,11 +344,8 @@ export default function Employees({ user: _user }: { user: User }) {
                 </label>
               )}
             </div>
-
             <div className="emp-modal-body">
               {formError && <div className="emp-error-msg">⚠ {formError}</div>}
-
-              {/* Full Name */}
               <div className="emp-field full">
                 <div className="emp-field-label">Full Name *</div>
                 <input
@@ -281,8 +355,6 @@ export default function Employees({ user: _user }: { user: User }) {
                   onChange={e => setForm(f => ({ ...f, employeeName: e.target.value }))}
                 />
               </div>
-
-              {/* Email */}
               <div className="emp-field full">
                 <div className="emp-field-label">
                   Email *
@@ -297,16 +369,10 @@ export default function Employees({ user: _user }: { user: User }) {
                   onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                 />
               </div>
-
-              {/* Role + Campaign */}
               <div className="emp-field-row">
                 <div className="emp-field">
                   <div className="emp-field-label">Role</div>
-                  <select
-                    className="emp-field-select"
-                    value={form.role}
-                    onChange={e => setForm(f => ({ ...f, role: e.target.value as Employee["role"] }))}
-                  >
+                  <select className="emp-field-select" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value as Employee["role"] }))}>
                     <option value="OM">OM — Operations Manager</option>
                     <option value="TL">TL — Team Lead</option>
                     <option value="Agent">Agent</option>
@@ -315,24 +381,13 @@ export default function Employees({ user: _user }: { user: User }) {
                 </div>
                 <div className="emp-field">
                   <div className="emp-field-label">Campaign</div>
-                  <input
-                    className="emp-field-input"
-                    placeholder="e.g. Nationgraph"
-                    value={form.campaign}
-                    onChange={e => setForm(f => ({ ...f, campaign: e.target.value }))}
-                  />
+                  <input className="emp-field-input" placeholder="e.g. Nationgraph" value={form.campaign} onChange={e => setForm(f => ({ ...f, campaign: e.target.value }))} />
                 </div>
               </div>
-
-              {/* Status + Birthdate */}
               <div className="emp-field-row">
                 <div className="emp-field">
                   <div className="emp-field-label">Status</div>
-                  <select
-                    className="emp-field-select"
-                    value={form.status}
-                    onChange={e => setForm(f => ({ ...f, status: e.target.value as Employee["status"] }))}
-                  >
+                  <select className="emp-field-select" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as Employee["status"] }))}>
                     <option value="active">Active</option>
                     <option value="on-leave">On Leave</option>
                     <option value="absent">Absent</option>
@@ -341,29 +396,16 @@ export default function Employees({ user: _user }: { user: User }) {
                 </div>
                 <div className="emp-field">
                   <div className="emp-field-label">Birthdate</div>
-                  <input
-                    className="emp-field-input"
-                    type="date"
-                    value={form.birthdate}
-                    onChange={e => setForm(f => ({ ...f, birthdate: e.target.value }))}
-                  />
+                  <input className="emp-field-input" type="date" value={form.birthdate} onChange={e => setForm(f => ({ ...f, birthdate: e.target.value }))} />
                 </div>
               </div>
-
-              {/* Notes */}
               <div className="emp-field full">
                 <div className="emp-field-label">Notes</div>
-                <textarea
-                  className="emp-field-textarea"
-                  placeholder="Optional — e.g. skills, schedule notes…"
-                  value={form.notes}
-                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                />
+                <textarea className="emp-field-textarea" placeholder="Optional — e.g. skills, schedule notes…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
             </div>
-
             <div className="emp-modal-footer">
-              <button className="btn-emp-cancel" onClick={closeModal}>Cancel</button>
+              <button className="btn-emp-cancel" onClick={closeAddEdit}>Cancel</button>
               <button className="btn-emp-save" onClick={handleSave} disabled={saving}>
                 {saving ? "Saving…" : editing ? "Save Changes" : "➕ Add Employee"}
               </button>
@@ -405,10 +447,7 @@ export default function Employees({ user: _user }: { user: User }) {
       {birthdays.length > 0 && (
         <div className="emp-birthday-banner">
           🎂&nbsp;
-          <span>
-            Happy Birthday to&nbsp;
-            <strong>{birthdays.map(e => e.employeeName).join(", ")}</strong>! 🎉
-          </span>
+          <span>Happy Birthday to&nbsp;<strong>{birthdays.map(e => e.employeeName).join(", ")}</strong>! 🎉</span>
         </div>
       )}
 
@@ -436,7 +475,7 @@ export default function Employees({ user: _user }: { user: User }) {
         </select>
       </div>
 
-      {/* ── CONTENT ── */}
+      {/* ── TABLE ── */}
       {loading ? (
         <div className="emp-loading">
           <div className="loading-dots"><span /><span /><span /></div>
@@ -445,99 +484,113 @@ export default function Employees({ user: _user }: { user: User }) {
       ) : filtered.length === 0 ? (
         <div className="emp-empty">
           <div className="emp-empty-icon">👥</div>
-          <div className="emp-empty-title">
-            {employees.length === 0 ? "No employees yet" : "No results found"}
-          </div>
+          <div className="emp-empty-title">{employees.length === 0 ? "No employees yet" : "No results found"}</div>
           <div className="emp-empty-sub">
-            {employees.length === 0
-              ? "Add your first team member to get started"
-              : "Try adjusting your search or filters"}
+            {employees.length === 0 ? "Add your first team member to get started" : "Try adjusting your search or filters"}
           </div>
-          {employees.length === 0 && (
-            <button className="btn-add-employee" onClick={openAdd}>+ Add First Employee</button>
-          )}
+          {employees.length === 0 && <button className="btn-add-employee" onClick={openAdd}>+ Add First Employee</button>}
         </div>
       ) : (
-        <div className="emp-grid">
-          {filtered.map(emp => (
-            <div key={emp._id} className={`emp-card role-${emp.role}`}>
+        <div className="emp-table-card">
+          <div className="emp-table-header-row">
+            <span className="emp-table-count">{filtered.length} employee{filtered.length !== 1 ? "s" : ""}</span>
+            <span className="emp-table-page-info">Page {page} of {totalPages}</span>
+          </div>
 
-              {/* ── CARD TOP ── */}
-              <div className="emp-card-top">
-                <div className="emp-avatar-wrap">
-                  <img
-                    src={avatarUrl(emp.employeeName, emp.profilePic)}
-                    alt={emp.employeeName}
-                    className="emp-avatar"
-                  />
-                  <label className="emp-avatar-upload-label" title="Upload photo">
-                    📷
-                    <input
-                      type="file"
-                      accept="image/*"
-                      disabled={uploadingFor === emp._id}
-                      onChange={e => e.target.files?.[0] && handlePhotoUpload(emp, e.target.files[0])}
-                    />
-                  </label>
-                </div>
+          <div className="emp-table-scroll">
+            <table className="emp-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Campaign</th>
+                  <th>Status</th>
+                  <th>Birthdate</th>
+                  <th>Age</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((emp, i) => (
+                  <tr
+                    key={emp._id}
+                    className="emp-table-row"
+                    style={{ animationDelay: `${i * 0.03}s` }}
+                  >
+                    {/* Employee */}
+                    <td>
+                      <div className="emp-table-identity">
+                        <div className="emp-table-avatar-wrap">
+                          <img
+                            src={avatarUrl(emp.employeeName, emp.profilePic)}
+                            alt={emp.employeeName}
+                            className="emp-table-avatar"
+                          />
+                          <div className={`emp-table-role-dot role-dot-${emp.role}`} />
+                        </div>
+                        <div>
+                          <div className="emp-table-name">
+                            {emp.employeeName}
+                            {isBirthdayToday(emp.birthdate) && " 🎂"}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    {/* Email */}
+                    <td className="emp-table-email">{emp.email}</td>
+                    {/* Role */}
+                    <td>
+                      <span className={`emp-role-badge emp-role-${emp.role}`}>{ROLE_LABELS[emp.role]}</span>
+                    </td>
+                    {/* Campaign */}
+                    <td className="emp-table-campaign">{emp.campaign || <span style={{ color: "var(--text-light)" }}>—</span>}</td>
+                    {/* Status */}
+                    <td>
+                      <span className={`emp-status-badge emp-status-${emp.status}`}>{STATUS_LABELS[emp.status]}</span>
+                    </td>
+                    {/* Birthdate */}
+                    <td className="emp-table-bd">{formatBirthdate(emp.birthdate)}</td>
+                    {/* Age */}
+                    <td className="emp-table-age">{calcAge(emp.birthdate)}</td>
+                    {/* Actions */}
+                    <td>
+                      <div className="emp-table-actions">
+                        <button className="emp-tbl-btn emp-tbl-view" onClick={() => setViewTarget(emp)} title="View">
+                          👁 View
+                        </button>
+                        <button className="emp-tbl-btn emp-tbl-edit" onClick={() => openEdit(emp)} title="Edit">
+                          ✏ Edit
+                        </button>
+                        <button
+                          className="emp-tbl-btn emp-tbl-del"
+                          disabled={deleting === emp._id}
+                          onClick={() => setDeleteTarget(emp)}
+                          title="Remove"
+                        >
+                          {deleting === emp._id ? "…" : "🗑"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-                <div className="emp-card-info">
-                  <div className="emp-card-name">
-                    {emp.employeeName}
-                    {isBirthdayToday(emp.birthdate) && "  🎂"}
-                  </div>
-                  <div className="emp-card-email">{emp.email}</div>
-                  <div className="emp-card-badges">
-                    <span className={`emp-role-badge emp-role-${emp.role}`}>
-                      {ROLE_LABELS[emp.role]}
-                    </span>
-                    <span className={`emp-status-badge emp-status-${emp.status}`}>
-                      {STATUS_LABELS[emp.status]}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* ── CARD DETAILS ── */}
-              <div className="emp-card-details">
-                <div className="emp-detail-item">
-                  <span className="emp-detail-lbl">Campaign</span>
-                  <span className="emp-detail-val">{emp.campaign || "—"}</span>
-                </div>
-                <div className="emp-detail-item">
-                  <span className="emp-detail-lbl">Age</span>
-                  <span className="emp-detail-val">{calcAge(emp.birthdate)}</span>
-                </div>
-                <div className="emp-detail-item emp-detail-full">
-                  <span className="emp-detail-lbl">Birthdate</span>
-                  <span className="emp-detail-val">{formatBirthdate(emp.birthdate)}</span>
-                </div>
-                {emp.notes && (
-                  <div className="emp-detail-item emp-detail-full">
-                    <span className="emp-detail-lbl">Notes</span>
-                    <span className="emp-detail-val-wrap">{emp.notes}</span>
-                  </div>
-                )}
-                {uploadingFor === emp._id && (
-                  <div className="emp-detail-item emp-detail-full" style={{ color: "var(--text-light)", fontFamily: "'DM Mono',monospace", fontSize: 10 }}>
-                    ⏳ Uploading photo…
-                  </div>
-                )}
-              </div>
-
-              {/* ── CARD ACTIONS ── */}
-              <div className="emp-card-actions">
-                <button className="btn-emp-edit" onClick={() => openEdit(emp)}>✏ Edit</button>
-                <button
-                  className="btn-emp-del"
-                  disabled={deleting === emp._id}
-                  onClick={() => setDeleteTarget(emp)}
-                >
-                  {deleting === emp._id ? "…" : "🗑 Remove"}
-                </button>
-              </div>
+          {/* ── PAGINATION ── */}
+          <div className="emp-pagination">
+            <span className="emp-pag-info">
+              Showing {Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            <div className="emp-pag-controls">
+              <button className="emp-pag-btn" disabled={page <= 1} onClick={() => setPage(1)} title="First">«</button>
+              <button className="emp-pag-btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+              <span className="emp-pag-current">{page} / {totalPages}</span>
+              <button className="emp-pag-btn" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
+              <button className="emp-pag-btn" disabled={page >= totalPages} onClick={() => setPage(totalPages)} title="Last">»</button>
             </div>
-          ))}
+          </div>
         </div>
       )}
     </div>

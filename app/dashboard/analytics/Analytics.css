@@ -1,0 +1,273 @@
+@import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;900&family=DM+Mono:wght@400;500&display=swap');
+
+        :root {
+          --text: #1a1916;
+          --text-muted: #57534e;
+          --text-light: #a8a29e;
+          --surface: #ffffff;
+          --surface-alt: #f7f5f2;
+          --border: #e8e6e1;
+          --border-strong: #c7c3bc;
+          --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+          --radius: 10px;
+          --radius-sm: 6px;
+          --green: #16a34a;
+          --amber: #d97706;
+          --blue: #2563eb;
+          --teal: #0d9488;
+          --red: #dc2626;
+          --purple: #7c3aed;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #f7f5f2; color: var(--text); font-family: 'DM Mono', monospace; }
+
+        .an-wrap { max-width: 1200px; margin: 0 auto; padding: 28px 20px 80px; min-height: 100vh; }
+        @media (min-width: 768px) { .an-wrap { padding: 32px 32px 60px; } }
+
+        .an-topbar {
+          display: flex; align-items: center; justify-content: space-between;
+          flex-wrap: wrap; gap: 12px; margin-bottom: 28px;
+        }
+        .an-brand { display: flex; align-items: center; gap: 10px; }
+
+        .an-back {
+          display: inline-flex; align-items: center; gap: 5px;
+          text-decoration: none; font-family: 'DM Mono', monospace;
+          font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+          color: var(--text-light); border: 1.5px solid var(--border);
+          border-radius: var(--radius-sm); padding: 6px 12px;
+          background: var(--surface); transition: all 0.15s; box-shadow: var(--shadow);
+        }
+        .an-back:hover { color: var(--text); border-color: var(--border-strong); }
+
+        .an-title {
+          font-family: 'Cabinet Grotesk', sans-serif;
+          font-size: clamp(22px, 4vw, 30px); font-weight: 900;
+          letter-spacing: -0.8px; color: var(--text); line-height: 1;
+        }
+        .an-title span { color: var(--green); }
+        .an-subtitle { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); margin-top: 3px; }
+
+        .an-topbar-right { display: flex; align-items: center; gap: 8px; }
+
+        .range-toggle {
+          display: inline-flex; border: 1.5px solid var(--border);
+          border-radius: var(--radius-sm); overflow: hidden;
+          background: var(--surface); box-shadow: var(--shadow);
+        }
+        .range-btn {
+          padding: 6px 14px; font-family: 'DM Mono', monospace;
+          font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+          background: transparent; border: none; cursor: pointer;
+          color: var(--text-light); transition: all 0.15s;
+          border-right: 1.5px solid var(--border);
+        }
+        .range-btn:last-child { border-right: none; }
+        .range-btn.active { background: var(--text); color: #fff; }
+        .range-btn:hover:not(.active) { background: var(--surface-alt); color: var(--text); }
+
+        .an-tabs {
+          display: flex; gap: 2px; border-bottom: 2px solid var(--border); margin-bottom: 24px;
+        }
+        .an-tab {
+          padding: 10px 20px; font-family: 'DM Mono', monospace;
+          font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+          background: transparent; border: none; cursor: pointer;
+          color: var(--text-light); border-bottom: 2px solid transparent;
+          margin-bottom: -2px; transition: all 0.15s;
+        }
+        .an-tab.active { color: var(--text); border-bottom-color: var(--text); }
+        .an-tab:hover:not(.active) { color: var(--text-muted); }
+
+        .kpi-strip {
+          display: grid; grid-template-columns: repeat(2, 1fr);
+          gap: 10px; margin-bottom: 20px;
+        }
+        @media (min-width: 640px) { .kpi-strip { grid-template-columns: repeat(4, 1fr); } }
+
+        /* ── ADDED: 5-col strip for roster row ── */
+        .kpi-strip-5 {
+          display: grid; grid-template-columns: repeat(2, 1fr);
+          gap: 10px; margin-bottom: 20px;
+        }
+        @media (min-width: 640px)  { .kpi-strip-5 { grid-template-columns: repeat(3, 1fr); } }
+        @media (min-width: 900px)  { .kpi-strip-5 { grid-template-columns: repeat(5, 1fr); } }
+
+        .kpi-card {
+          background: var(--surface); border: 1.5px solid var(--border);
+          border-radius: var(--radius); padding: 18px 18px 20px;
+          box-shadow: var(--shadow); position: relative; overflow: hidden;
+          transition: transform 0.15s;
+        }
+        .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .kpi-card::after {
+          content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+        }
+        .kpi-card.k-green::after  { background: var(--green); }
+        .kpi-card.k-amber::after  { background: var(--amber); }
+        .kpi-card.k-blue::after   { background: var(--blue); }
+        .kpi-card.k-teal::after   { background: var(--teal); }
+        .kpi-card.k-red::after    { background: var(--red); }
+        .kpi-card.k-purple::after { background: var(--purple); }
+        .kpi-card.k-gray::after   { background: var(--border-strong); }
+
+        .kpi-icon { font-size: 20px; margin-bottom: 8px; }
+        .kpi-label { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); margin-bottom: 6px; }
+        .kpi-value {
+          font-family: 'Cabinet Grotesk', sans-serif;
+          font-size: clamp(24px, 3.5vw, 32px); font-weight: 900;
+          letter-spacing: -1.5px; color: var(--text); line-height: 1;
+        }
+        .kpi-card.k-green  .kpi-value { color: var(--green); }
+        .kpi-card.k-amber  .kpi-value { color: var(--amber); }
+        .kpi-card.k-blue   .kpi-value { color: var(--blue); }
+        .kpi-card.k-teal   .kpi-value { color: var(--teal); }
+        .kpi-card.k-purple .kpi-value { color: var(--purple); }
+        .kpi-sub { font-size: 10px; color: var(--text-light); margin-top: 4px; letter-spacing: 0.5px; }
+
+        /* ── ADDED: roster role mini-bar inside kpi card ── */
+        .kpi-role-row {
+          display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;
+        }
+        .kpi-role-pill {
+          display: inline-flex; align-items: center; gap: 3px;
+          padding: 2px 7px; border-radius: 20px;
+          font-family: 'DM Mono', monospace; font-size: 9px;
+          font-weight: 700; letter-spacing: 0.3px; border: 1px solid;
+        }
+
+        /* ── ADDED: attendance card ── */
+        .attendance-card {
+          background: var(--surface); border: 1.5px solid var(--border);
+          border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow);
+          margin-bottom: 16px;
+        }
+        .attendance-title {
+          font-family: 'DM Mono', monospace; font-size: 10px;
+          letter-spacing: 1.5px; text-transform: uppercase;
+          color: var(--text-muted); margin-bottom: 14px;
+          display: flex; align-items: center; gap: 8px;
+        }
+        .attendance-bar-wrap {
+          background: #f0ede8; border-radius: 6px; height: 10px;
+          overflow: hidden; margin-bottom: 8px;
+        }
+        .attendance-bar-fill {
+          height: 100%; border-radius: 6px; transition: width 0.8s cubic-bezier(.22,1,.36,1);
+        }
+        .attendance-meta {
+          display: flex; justify-content: space-between;
+          font-size: 10px; color: var(--text-light); letter-spacing: 0.5px;
+        }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
+        @media (min-width: 768px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+
+        .grid-3 { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
+        @media (min-width: 900px) { .grid-3 { grid-template-columns: 2fr 1fr; } }
+
+        .chart-card {
+          background: var(--surface); border: 1.5px solid var(--border);
+          border-radius: var(--radius); padding: 20px 20px 16px; box-shadow: var(--shadow);
+        }
+        .chart-card-title {
+          font-family: 'DM Mono', monospace; font-size: 10px;
+          letter-spacing: 1.5px; text-transform: uppercase;
+          color: var(--text-muted); margin-bottom: 16px;
+          display: flex; align-items: center; gap: 8px;
+        }
+        .chart-card-title-icon { font-size: 14px; }
+        .chart-wrap { width: 100%; }
+        .chart-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-light); margin-bottom: 6px; }
+
+        .bio-tag {
+          display: inline-flex; align-items: center; gap: 3px;
+          background: #f0fdfa; border: 1px solid #99f6e4;
+          border-radius: 4px; padding: 1px 6px;
+          font-family: 'DM Mono', monospace; font-size: 9px;
+          color: #0f766e; font-weight: 600; letter-spacing: 0.3px;
+        }
+
+        .donut-section { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+        .donut-legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 10px; }
+        .legend-item { display: flex; align-items: center; gap: 10px; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .legend-label { font-size: 11px; color: var(--text-muted); flex: 1; }
+        .legend-count { font-family: 'Cabinet Grotesk', sans-serif; font-size: 16px; font-weight: 900; color: var(--text); letter-spacing: -0.5px; }
+        .legend-pct { font-size: 10px; color: var(--text-light); }
+
+        .emp-list { display: flex; flex-direction: column; gap: 14px; }
+        .emp-row { display: flex; align-items: center; gap: 12px; }
+        .emp-rank {
+          font-family: 'Cabinet Grotesk', sans-serif; font-size: 16px;
+          font-weight: 900; color: var(--border-strong);
+          width: 24px; text-align: center; flex-shrink: 0;
+        }
+        .emp-row:first-child .emp-rank { color: #d97706; }
+        .emp-row:nth-child(2) .emp-rank { color: #78716c; }
+        .emp-row:nth-child(3) .emp-rank { color: #92400e; }
+        .emp-info { flex: 1; min-width: 0; }
+        .emp-name {
+          font-family: 'Cabinet Grotesk', sans-serif; font-size: 14px;
+          font-weight: 700; color: var(--text); letter-spacing: -0.3px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .emp-meta { font-size: 10px; color: var(--text-light); letter-spacing: 0.5px; margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .emp-bar-wrap { flex: 1; }
+        .emp-hours {
+          font-family: 'Cabinet Grotesk', sans-serif; font-size: 15px;
+          font-weight: 900; color: var(--green); letter-spacing: -0.5px;
+          flex-shrink: 0; width: 54px; text-align: right;
+        }
+        .emp-spark { flex-shrink: 0; }
+
+        .hour-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+        .hour-cell { border-radius: 4px; padding: 6px 2px; text-align: center; font-size: 8.5px; color: var(--text-light); transition: all 0.2s; position: relative; }
+        .hour-cell-label { font-size: 7.5px; color: var(--text-light); margin-bottom: 2px; font-family: 'DM Mono', monospace; }
+        .hour-cell-count { font-family: 'Cabinet Grotesk', sans-serif; font-size: 13px; font-weight: 900; color: var(--text); }
+
+        .insights-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+        .insight-pill {
+          display: flex; align-items: center; gap: 8px;
+          background: var(--surface); border: 1.5px solid var(--border);
+          border-radius: 8px; padding: 10px 14px; box-shadow: var(--shadow);
+          flex: 1; min-width: 160px;
+        }
+        .insight-icon { font-size: 18px; }
+        .insight-text { flex: 1; }
+        .insight-title { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); }
+        .insight-val { font-family: 'Cabinet Grotesk', sans-serif; font-size: 16px; font-weight: 900; color: var(--text); letter-spacing: -0.5px; }
+
+        .an-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px; gap: 14px; }
+        .loading-dots { display: inline-flex; gap: 6px; }
+        .loading-dots span { width: 8px; height: 8px; background: var(--border-strong); border-radius: 50%; animation: ld 0.8s infinite; }
+        .loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.30s; }
+        @keyframes ld { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; } 40% { transform: scale(1); opacity: 1; } }
+        .loading-text { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-light); }
+
+        /* ── ADDED: roster role breakdown table ── */
+        .role-breakdown {
+          display: grid; grid-template-columns: repeat(2, 1fr);
+          gap: 10px; margin-top: 14px;
+        }
+        @media (min-width: 640px) { .role-breakdown { grid-template-columns: repeat(4, 1fr); } }
+        .role-tile {
+          background: var(--surface-alt); border: 1.5px solid var(--border);
+          border-radius: var(--radius-sm); padding: 12px 14px; text-align: center;
+        }
+        .role-tile-val {
+          font-family: 'Cabinet Grotesk', sans-serif; font-size: 26px;
+          font-weight: 900; letter-spacing: -1px; line-height: 1;
+        }
+        .role-tile-lbl {
+          font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase;
+          color: var(--text-light); margin-top: 4px;
+        }
+
+        @media (max-width: 500px) {
+          .range-btn { padding: 6px 10px; font-size: 9px; }
+          .an-tab { padding: 8px 12px; font-size: 10px; }
+          .hour-grid { grid-template-columns: repeat(4, 1fr); }
+        }
