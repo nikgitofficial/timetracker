@@ -454,6 +454,7 @@ export default function TimeClockPage() {
   videoRef.current?.play();
   setCameraReady(true);
   startPreview();
+    startCountdown();
 };
       }
     } catch { setCameraError("Camera access denied or unavailable."); }
