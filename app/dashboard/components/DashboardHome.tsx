@@ -233,6 +233,7 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
   const el = tableScrollRef.current;
   if (!el) return;
+  e.preventDefault(); // ← ADD THIS LINE
   isDragging.current = true;
   dragStart.current = {
     x: e.clientX,
@@ -243,9 +244,11 @@ export default function DashboardHome({ user: _userProp }: { user: User }) {
   el.style.cursor = "grabbing";
   el.style.userSelect = "none";
 };
+  
 
 const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
   if (!isDragging.current) return;
+  e.preventDefault();
   const el = tableScrollRef.current;
   if (!el) return;
   const dx = e.clientX - dragStart.current.x;

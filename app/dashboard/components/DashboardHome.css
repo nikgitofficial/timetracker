@@ -367,13 +367,13 @@
 /* ── TABLE ── */
 .table-scroll-wrap { position: relative; }
 
+
 .table-scroll {
   overflow-x: auto;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   cursor: grab;
   max-height: calc(41px + 20 * 49px);
-  scroll-behavior: smooth;
 }
 .table-scroll:active { cursor: grabbing; }
 .table-scroll.dragging * { pointer-events: none; }
