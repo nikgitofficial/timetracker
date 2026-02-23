@@ -6,6 +6,8 @@ import { HiHome, HiUser, HiCog, HiX, HiChevronRight, HiChevronLeft, HiLogout } f
 import DashboardHome from "./components/DashboardHome";
 import Profile from "./components/Profile";
 import Settings from "./components/Settings";
+import Employees from "./components/Employees";
+
 
 type User = {
   email: string;
@@ -14,7 +16,7 @@ type User = {
   photoUrl?: string;
 };
 
-type Page = "dashboard" | "profile" | "settings";
+type Page = "dashboard" | "profile" | "settings" | "employees";
 
 export default function DashboardSPA() {
   const [user, setUser] = useState<User | null>(null);
@@ -131,6 +133,7 @@ export default function DashboardSPA() {
     { name: "Home", icon: <HiHome size={17} />, key: "dashboard" },
     { name: "Profile", icon: <HiUser size={17} />, key: "profile" },
     { name: "Settings", icon: <HiCog size={17} />, key: "settings" },
+    { name: "Employees", icon: <HiCog size={17} />, key: "employees" },
   ];
 
   const handlePhotoUpload = async (file: File) => {
@@ -159,6 +162,7 @@ export default function DashboardSPA() {
       case "dashboard": return <DashboardHome user={user} />;
       case "profile": return <Profile user={user} onPhotoUpload={handlePhotoUpload} />;
       case "settings": return <Settings user={user} />;
+      case "employees": return <Employees user={user} />;
       default: return null;
     }
   };
@@ -167,6 +171,7 @@ export default function DashboardSPA() {
     dashboard: "Records",
     profile: "Profile",
     settings: "Settings",
+    employees: "Employees",
   };
 
   return (

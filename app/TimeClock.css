@@ -1040,3 +1040,174 @@ button:disabled { opacity: 0.2; cursor: not-allowed; filter: grayscale(0.5); }
   letter-spacing: 1.5px;
   color: #374151;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   EMPLOYEE PROFILE CARD  (add to bottom of TimeClock.css)
+   ─────────────────────────────────────────────────────────── */
+
+/* ── Profile card that appears after valid email lookup ── */
+.emp-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  margin-bottom: 22px;
+  background: rgba(0,255,136,0.04);
+  border: 1px solid rgba(0,255,136,0.2);
+  border-radius: 10px;
+  animation: epcSlideIn 0.3s ease;
+}
+
+@keyframes epcSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.epc-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.epc-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  border: 2px solid rgba(0,255,136,0.35);
+  background: rgba(255,255,255,0.06);
+}
+
+.epc-dot {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #0a0e14;
+}
+
+.epc-dot-active   { background: #00ff88; box-shadow: 0 0 6px rgba(0,255,136,0.6); animation: pulse 2s infinite; }
+.epc-dot-inactive { background: #6b7280; }
+
+.epc-info { flex: 1; min-width: 0; }
+
+.epc-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.epc-email {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  color: #6b7280;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 6px;
+}
+
+.epc-badges {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.epc-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  border: 1px solid;
+}
+
+.epc-status-active   { color: #00ff88; background: rgba(0,255,136,0.1); border-color: rgba(0,255,136,0.3); }
+.epc-status-on-leave { color: #fbbf24; background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.3); }
+.epc-status-absent   { color: #f87171; background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.3); }
+.epc-status-inactive { color: #6b7280; background: rgba(107,114,128,0.1); border-color: rgba(107,114,128,0.3); }
+
+/* ── Not-in-roster banner ── */
+.emp-not-found-banner {
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  color: #f87171;
+  letter-spacing: 0.5px;
+  line-height: 1.5;
+  animation: epcSlideIn 0.25s ease;
+}
+
+/* ── Status-blocked banner ── */
+.emp-blocked-banner {
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  background: rgba(251,191,36,0.08);
+  border: 1px solid rgba(251,191,36,0.3);
+  border-radius: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  color: #fbbf24;
+  letter-spacing: 0.5px;
+  line-height: 1.5;
+  animation: epcSlideIn 0.25s ease;
+}
+
+/* ── Employee banner inside action modal ── */
+.modal-emp-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+}
+
+.modal-emp-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid rgba(0,255,136,0.3);
+  flex-shrink: 0;
+}
+
+.modal-emp-info { flex: 1; min-width: 0; }
+
+.modal-emp-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal-emp-meta {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  color: #6b7280;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
