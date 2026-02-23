@@ -40,11 +40,15 @@ export async function POST(req: NextRequest) {
   if (!email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return NextResponse.json({ error: "Valid email is required" }, { status: 400 });
 
-  // ✅ Only block if THIS owner already has this exact email — other owners can have the same employee
-  const existing = await Employee.findOne({ ownerEmail, email: email.trim().toLowerCase() });
+  // ✅ CHANGED: block duplicate only if same owner + same email + same name
+  const existing = await Employee.findOne({
+    ownerEmail,
+    email: email.trim().toLowerCase(),
+    employeeName: { $regex: new RegExp(`^${employeeName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+  });
   if (existing) {
     return NextResponse.json(
-      { error: "You already have an employee with this email in your roster" },
+      { error: "You already have an employee with this name and email in your roster" },
       { status: 409 }
     );
   }
@@ -64,7 +68,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     if ((err as { code?: number }).code === 11000)
       return NextResponse.json(
-        { error: "You already have an employee with this email in your roster" },
+        { error: "You already have an employee with this name and email in your roster" },
         { status: 409 }
       );
     return NextResponse.json({ error: "Failed to create employee" }, { status: 500 });

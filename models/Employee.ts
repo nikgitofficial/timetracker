@@ -24,8 +24,7 @@ const EmployeeSchema = new Schema(
   { timestamps: true }
 );
 
-// ✅ CHANGED: employee email is unique per owner only — same email can exist under different owners
-// This allows multiple admins to each have the same employee in their roster
-EmployeeSchema.index({ ownerEmail: 1, email: 1 }, { unique: true });
+// ✅ CHANGED: unique per owner + email + name — allows same email with different names under one owner
+EmployeeSchema.index({ ownerEmail: 1, email: 1, employeeName: 1 }, { unique: true });
 
 export default models.Employee || model("Employee", EmployeeSchema);
