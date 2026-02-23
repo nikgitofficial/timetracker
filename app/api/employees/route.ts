@@ -9,7 +9,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
 async function getOwnerEmail(): Promise<string | null> {
   const cookieStore = await cookies();
-  const token = cookieStore.get("accessToken")?.value; // ✅ FIXED: was "auth-token"
+  const token = cookieStore.get("accessToken")?.value;
   if (!token) return null;
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { email: string };
@@ -19,6 +19,7 @@ async function getOwnerEmail(): Promise<string | null> {
   }
 }
 
+// GET — list all employees for this owner
 export async function GET() {
   const ownerEmail = await getOwnerEmail();
   if (!ownerEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -27,6 +28,7 @@ export async function GET() {
   return NextResponse.json({ employees });
 }
 
+// POST — create new employee
 export async function POST(req: NextRequest) {
   const ownerEmail = await getOwnerEmail();
   if (!ownerEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -37,6 +39,15 @@ export async function POST(req: NextRequest) {
   if (!employeeName?.trim()) return NextResponse.json({ error: "Name is required" }, { status: 400 });
   if (!email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return NextResponse.json({ error: "Valid email is required" }, { status: 400 });
+
+  // ✅ Only block if THIS owner already has this exact email — other owners can have the same employee
+  const existing = await Employee.findOne({ ownerEmail, email: email.trim().toLowerCase() });
+  if (existing) {
+    return NextResponse.json(
+      { error: "You already have an employee with this email in your roster" },
+      { status: 409 }
+    );
+  }
 
   try {
     const employee = await Employee.create({
@@ -52,11 +63,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ employee }, { status: 201 });
   } catch (err: unknown) {
     if ((err as { code?: number }).code === 11000)
-      return NextResponse.json({ error: "Employee with this email already exists in your roster" }, { status: 409 });
+      return NextResponse.json(
+        { error: "You already have an employee with this email in your roster" },
+        { status: 409 }
+      );
     return NextResponse.json({ error: "Failed to create employee" }, { status: 500 });
   }
 }
 
+// PUT — update employee
 export async function PUT(req: NextRequest) {
   const ownerEmail = await getOwnerEmail();
   if (!ownerEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -77,6 +92,7 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json({ employee });
 }
 
+// DELETE — remove employee
 export async function DELETE(req: NextRequest) {
   const ownerEmail = await getOwnerEmail();
   if (!ownerEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
