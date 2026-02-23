@@ -9,7 +9,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
 async function getOwnerEmail(): Promise<string | null> {
   const cookieStore = await cookies();
-  const token = cookieStore.get("auth-token")?.value;
+  const token = cookieStore.get("accessToken")?.value; // ✅ FIXED: was "auth-token"
   if (!token) return null;
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { email: string };
@@ -19,7 +19,6 @@ async function getOwnerEmail(): Promise<string | null> {
   }
 }
 
-// GET — list all employees for this owner
 export async function GET() {
   const ownerEmail = await getOwnerEmail();
   if (!ownerEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -28,7 +27,6 @@ export async function GET() {
   return NextResponse.json({ employees });
 }
 
-// POST — create new employee
 export async function POST(req: NextRequest) {
   const ownerEmail = await getOwnerEmail();
   if (!ownerEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -59,7 +57,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PUT — update employee
 export async function PUT(req: NextRequest) {
   const ownerEmail = await getOwnerEmail();
   if (!ownerEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -68,9 +65,8 @@ export async function PUT(req: NextRequest) {
   const { id, ...updates } = body;
   if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-  // Prevent hijacking
   delete updates.ownerEmail;
-  delete updates.email; // email is immutable after creation
+  delete updates.email;
 
   const employee = await Employee.findOneAndUpdate(
     { _id: id, ownerEmail },
@@ -81,7 +77,6 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json({ employee });
 }
 
-// DELETE — remove employee
 export async function DELETE(req: NextRequest) {
   const ownerEmail = await getOwnerEmail();
   if (!ownerEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
