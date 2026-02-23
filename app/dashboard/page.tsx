@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { HiHome, HiUser, HiCog, HiX, HiChevronRight, HiChevronLeft, HiLogout } from "react-icons/hi";
+import { HiHome, HiUser, HiCog, HiX, HiChevronRight, HiChevronLeft, HiLogout, HiUserGroup } from "react-icons/hi";
 
 import DashboardHome from "./components/DashboardHome";
 import Profile from "./components/Profile";
@@ -133,7 +133,7 @@ export default function DashboardSPA() {
     { name: "Home", icon: <HiHome size={17} />, key: "dashboard" },
     { name: "Profile", icon: <HiUser size={17} />, key: "profile" },
     { name: "Settings", icon: <HiCog size={17} />, key: "settings" },
-    { name: "Employees", icon: <HiCog size={17} />, key: "employees" },
+    { name: "Employees", icon: <HiUserGroup size={17} />, key: "employees" }, // ✅ changed from HiCog to HiUserGroup
   ];
 
   const handlePhotoUpload = async (file: File) => {
