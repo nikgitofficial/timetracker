@@ -10,7 +10,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
 async function getOwnerEmail(): Promise<string | null> {
   const cookieStore = await cookies();
-  const token = cookieStore.get("auth-token")?.value;
+  const token = cookieStore.get("accessToken")?.value; // ✅ fixed: was "auth-token"
   if (!token) return null;
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { email: string };
