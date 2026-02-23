@@ -1,3 +1,4 @@
+// app/api/auth/me/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken, signAccessToken } from "@/lib/jwt";
 import connectDB from "@/lib/mongodb";
@@ -14,7 +15,6 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Try verifying access token
     if (accessToken) {
       const decoded = verifyToken(accessToken);
       const userFromDB = await User.findById(decoded.userId);
@@ -30,17 +30,15 @@ export async function GET(req: NextRequest) {
       });
     }
   } catch {
-    // Access token expired, try refresh token
     if (!refreshToken) return NextResponse.json({}, { status: 401 });
 
     try {
-      const decoded = verifyToken(refreshToken); // verify refresh token
+      const decoded = verifyToken(refreshToken);
       const userFromDB = await User.findById(decoded.userId);
       if (!userFromDB || userFromDB.refreshToken !== refreshToken) {
         return NextResponse.json({}, { status: 401 });
       }
 
-      // Generate new access token
       const newAccessToken = signAccessToken({
         userId: userFromDB._id.toString(),
         email: userFromDB.email,
@@ -59,9 +57,9 @@ export async function GET(req: NextRequest) {
       res.cookies.set("accessToken", newAccessToken, {
         httpOnly: true,
         secure: true,
-        sameSite: "none",
+        sameSite: "lax", // ✅ FIXED: was "none"
         path: "/",
-        maxAge: 900, // 15 min
+        maxAge: 900,
       });
 
       return res;

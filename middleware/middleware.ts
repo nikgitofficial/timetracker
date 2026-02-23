@@ -1,5 +1,4 @@
-// middleware.ts — add /api/time/records and /dashboard/time to protected routes
-
+// middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken, signAccessToken } from "@/lib/jwt";
 import User from "@/models/User";
@@ -46,11 +45,9 @@ export async function middleware(req: NextRequest) {
       });
 
       const response = NextResponse.next();
-      const isProduction = process.env.NODE_ENV === "production";
-
       response.cookies.set("accessToken", newAccess, {
         httpOnly: true,
-        secure: isProduction,
+        secure: true,
         sameSite: "lax",
         path: "/",
         maxAge: 900,
@@ -73,7 +70,7 @@ export const config = {
   matcher: [
     "/dashboard/:path*",
     "/api/notes/:path*",
-    // ✅ NEW: protect time records API (but NOT the public punch endpoint)
     "/api/time/records/:path*",
+    "/api/employees/:path*", // ✅ ADDED
   ],
 };
