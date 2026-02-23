@@ -1222,3 +1222,141 @@ button:disabled { opacity: 0.2; cursor: not-allowed; filter: grayscale(0.5); }
 .name-picker-meta { font-size: 11px; color: #6b7280; margin-top: 2px; }
 .name-picker-status-active { color: #16a34a; }
 .name-picker-status-inactive, .name-picker-status-on-leave, .name-picker-status-absent { color: #dc2626; }
+/* ── FILTER BAR ─────────────────────────────────────────────────
+   Sits just below the live camera feed, above the status bar
+   ────────────────────────────────────────────────────────────── */
+
+/* Video element class (used for CSS-filter targeting) */
+.tc-video {
+  width: 100%;
+  display: block;
+  transform: scaleX(-1);        /* mirror = selfie feel */
+  border-radius: 0;
+  max-height: 220px;
+  object-fit: cover;
+  transition: filter 0.25s ease; /* smooth filter swap */
+}
+
+/* ── FILTER TOGGLE BUTTON ── */
+.filter-bar {
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(8px);
+  padding: 6px 10px;
+  position: relative;
+}
+
+.filter-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 20px;
+  padding: 5px 12px;
+  color: #e2e8f0;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-direction: row;
+  gap: 6px;
+}
+
+.filter-toggle-btn:hover {
+  background: rgba(0,255,136,0.12);
+  border-color: rgba(0,255,136,0.3);
+  color: #00ff88;
+}
+
+.filter-toggle-label {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #00ff88;
+}
+
+/* ── FILTER PICKER DROPDOWN ── */
+.filter-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px;
+  background: rgba(10,14,20,0.95);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  animation: filterPickerIn 0.18s ease;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+@keyframes filterPickerIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── INDIVIDUAL FILTER CHIP ── */
+.filter-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  cursor: pointer;
+  transition: all 0.15s;
+  color: #9ca3af;
+}
+
+.filter-chip:hover {
+  border-color: rgba(0,255,136,0.4);
+  background: rgba(0,255,136,0.07);
+  color: #e2e8f0;
+}
+
+.filter-chip-active {
+  border-color: #00ff88 !important;
+  background: rgba(0,255,136,0.12) !important;
+  color: #00ff88 !important;
+  box-shadow: 0 0 10px rgba(0,255,136,0.2);
+}
+
+/* ── SWATCH: tiny gradient square with the filter applied ── */
+.filter-chip-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.12);
+  transition: filter 0.2s;
+}
+
+.filter-chip-emoji {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.filter-chip-name {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* Mobile: 3 columns instead of 4 */
+@media (max-width: 420px) {
+  .filter-picker { grid-template-columns: repeat(3, 1fr); }
+}
+/* ── LIVE PREVIEW CANVAS ── */
+.tc-preview-canvas {
+  width: 100%;
+  display: block !important;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 0;
+}
