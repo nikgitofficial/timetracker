@@ -35,7 +35,6 @@ interface TimeEntry {
   selfies?: SelfieEntry[];
 }
 
-// ── Employee profile from /api/employees/lookup ──
 interface EmployeeProfile {
   employeeName: string;
   email: string;
@@ -80,7 +79,6 @@ export default function TimeClockPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
-  // ── FIX: null initial value prevents SSR/client hydration mismatch ──
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [entry, setEntry] = useState<TimeEntry | null>(null);
   const [loading, setLoading] = useState(false);
@@ -90,8 +88,9 @@ export default function TimeClockPage() {
 
   // ── EMPLOYEE PROFILE STATE ──────────────────────────────────────
   const [employeeProfile, setEmployeeProfile] = useState<EmployeeProfile | null>(null);
+  const [employeeChoices, setEmployeeChoices] = useState<EmployeeProfile[]>([]); // ✅ multiple matches
   const [lookingUp, setLookingUp] = useState(false);
-  const [lookupDone, setLookupDone] = useState(false);   // has a lookup been attempted?
+  const [lookupDone, setLookupDone] = useState(false);
   const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── DATE PICKER ─────────────────────────────────────────────────
@@ -132,27 +131,22 @@ export default function TimeClockPage() {
     return { image: c.images[i], message: c.messages[i] };
   };
 
-  // ── CLOCK TICK ───────────────────────────────────────────────────
   useEffect(() => {
-    // ── FIX: set initial time on client only, after hydration ──
     setCurrentTime(new Date());
     const t = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // ── AUTO-CLEAR MESSAGE ───────────────────────────────────────────
   useEffect(() => {
     if (message) { const t = setTimeout(() => setMessage(null), 5000); return () => clearTimeout(t); }
   }, [message]);
 
-  // ── DATE CHANGE ──────────────────────────────────────────────────
   useEffect(() => {
     setIsHistorical(selectedDate !== today);
     setHistoricalEntry(null);
     setHistoricalMessage(null);
   }, [selectedDate, today]);
 
-  // ── CAMERA LIFECYCLE ─────────────────────────────────────────────
   useEffect(() => {
     if (actionModal) {
       setCapturedPhoto(null); setCameraError(null); setCameraReady(false);
@@ -163,7 +157,6 @@ export default function TimeClockPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionModal]);
 
-  // ── LIGHTBOX KEYBOARD ────────────────────────────────────────────
   useEffect(() => {
     if (!lightbox) return;
     const handler = (e: KeyboardEvent) => {
@@ -180,6 +173,7 @@ export default function TimeClockPage() {
     const val = emailVal.trim().toLowerCase();
     if (!val || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
       setEmployeeProfile(null);
+      setEmployeeChoices([]);
       setLookupDone(false);
       return;
     }
@@ -187,27 +181,46 @@ export default function TimeClockPage() {
     try {
       const res = await fetch(`/api/employees/lookup?email=${encodeURIComponent(val)}`);
       const data = await res.json();
-      if (data.employee) {
+
+      if (data.employees && data.employees.length > 1) {
+        // ✅ Multiple matches — show name picker
+        setEmployeeChoices(data.employees);
+        setEmployeeProfile(null);
+        setName("");
+        setLookupDone(true);
+      } else if (data.employee) {
+        // Single match — auto-fill as before
         setEmployeeProfile(data.employee);
-        // Auto-fill name from roster
+        setEmployeeChoices([]);
         setName(data.employee.employeeName);
+        setLookupDone(true);
       } else {
         setEmployeeProfile(null);
+        setEmployeeChoices([]);
+        setLookupDone(true);
       }
-      setLookupDone(true);
     } catch {
       setEmployeeProfile(null);
+      setEmployeeChoices([]);
       setLookupDone(false);
     } finally {
       setLookingUp(false);
     }
   }, []);
 
-  // Debounce lookup as user types email
+  // ✅ Called when user picks their name from the list
+  const handleSelectProfile = (profile: EmployeeProfile) => {
+    setEmployeeProfile(profile);
+    setEmployeeChoices([]);
+    setName(profile.employeeName);
+    fetchStatus(email, profile.employeeName);
+  };
+
   const handleEmailChange = (val: string) => {
     setEmail(val);
     setEmailError("");
     setEmployeeProfile(null);
+    setEmployeeChoices([]);
     setLookupDone(false);
     if (lookupTimer.current) clearTimeout(lookupTimer.current);
     lookupTimer.current = setTimeout(() => lookupEmployee(val), 750);
@@ -327,17 +340,14 @@ export default function TimeClockPage() {
     if (!name.trim()) { setMessage({ text: "Please enter your name", type: "error" }); return; }
     if (!validateEmail(email)) { setMessage({ text: "Please enter a valid email", type: "error" }); return; }
 
-    // ── GATE: must be in employee roster ──
     if (!employeeProfile) {
       setMessage({ text: "⛔ Your email is not in the employee roster. Please contact your admin.", type: "error" });
       return;
     }
-    // ── GATE: must be active ──
     if (employeeProfile.status !== "active") {
       setMessage({ text: `⛔ Your status is "${employeeProfile.status.replace("-", " ")}". Only active employees can clock in.`, type: "error" });
       return;
     }
-    // ── GATE: name must match exactly ──
     if (employeeProfile.employeeName.trim().toLowerCase() !== name.trim().toLowerCase()) {
       setMessage({ text: `⛔ Name mismatch. Please use your registered name: "${employeeProfile.employeeName}"`, type: "error" });
       return;
@@ -392,7 +402,6 @@ export default function TimeClockPage() {
     returned: "🔄 RETURNED", "checked-out": "🔴 CHECKED OUT",
   };
 
-  // ── FIX: derive display strings from currentTime (null-safe) ──
   const todayDisplay = currentTime
     ? currentTime.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
     : "";
@@ -449,7 +458,6 @@ export default function TimeClockPage() {
     );
   };
 
-  // ────────────────────────────────────────────────────────────────
   return (
     <>
       <canvas ref={canvasRef} style={{ display: "none" }} />
@@ -468,7 +476,7 @@ export default function TimeClockPage() {
 
         <div className="card">
 
-          {/* ── EMPLOYEE PROFILE CARD ─ shows after valid email ── */}
+          {/* ── EMPLOYEE PROFILE CARD ── */}
           {employeeProfile && (
             <div className="emp-profile-card">
               <div className="epc-avatar-wrap">
@@ -496,12 +504,50 @@ export default function TimeClockPage() {
                     {employeeProfile.status.replace("-", " ")}
                   </span>
                 </div>
+                {/* ✅ Allow switching back to picker */}
+                <button
+                  onClick={() => { setEmployeeProfile(null); lookupEmployee(email); }}
+                  style={{ marginTop: 8, fontSize: 10, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "'Share Tech Mono',monospace", letterSpacing: 1 }}
+                >
+                  ↩ Not you? Switch name
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ NAME PICKER — shown when multiple employees share the same email */}
+          {employeeChoices.length > 1 && !employeeProfile && (
+            <div className="name-picker-section">
+              <div className="name-picker-title">👤 Who are you?</div>
+              <div className="name-picker-subtitle">Multiple accounts found for this email. Please select your name:</div>
+              <div className="name-picker-list">
+                {employeeChoices.map((ep, i) => (
+                  <button
+                    key={i}
+                    className="name-picker-option"
+                    onClick={() => handleSelectProfile(ep)}
+                  >
+                    <img
+                      src={ep.profilePic || `https://ui-avatars.com/api/?name=${encodeURIComponent(ep.employeeName)}&background=1a2744&color=00ff88&size=48`}
+                      alt={ep.employeeName}
+                      className="name-picker-avatar"
+                    />
+                    <div className="name-picker-info">
+                      <div className="name-picker-name">{ep.employeeName}</div>
+                      <div className="name-picker-meta">
+                        <span style={{ color: ROLE_COLOR[ep.role] }}>{ep.role}</span>
+                        {ep.campaign && <span style={{ color: "#6b7280" }}> · {ep.campaign}</span>}
+                        <span className={`name-picker-status name-picker-status-${ep.status}`}> · {ep.status.replace("-", " ")}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           )}
 
           {/* Not-in-roster warning */}
-          {lookupDone && !employeeProfile && !lookingUp && (
+          {lookupDone && !employeeProfile && employeeChoices.length === 0 && !lookingUp && (
             <div className="emp-not-found-banner">
               🚫 This email is not registered in the employee roster. Please contact your admin.
             </div>
@@ -535,7 +581,7 @@ export default function TimeClockPage() {
           </div>
           {emailError && <p className="field-error">{emailError}</p>}
 
-          {/* ── NAME FIELD — auto-filled & locked when profile found ── */}
+          {/* ── NAME FIELD ── */}
           <div className="field-label" style={{ marginTop: "16px" }}>
             Your Name
             {employeeProfile && <span style={{ marginLeft: 8, fontSize: 9, color: "#00ff88", letterSpacing: 1, fontFamily: "'Share Tech Mono',monospace" }}>✓ VERIFIED FROM ROSTER</span>}
@@ -543,14 +589,14 @@ export default function TimeClockPage() {
           <input
             className="name-input"
             type="text"
-            placeholder="Enter your full name…"
+            placeholder={employeeChoices.length > 1 ? "← Select your name above first" : "Enter your full name…"}
             value={name}
             onChange={e => setName(e.target.value)}
             onBlur={handleNameBlur}
             onKeyDown={e => e.key === "Enter" && handleNameBlur()}
             autoComplete="name"
-            readOnly={!!employeeProfile}
-            style={employeeProfile ? { opacity: 0.65, cursor: "not-allowed" } : undefined}
+            readOnly={!!employeeProfile || employeeChoices.length > 1}
+            style={(employeeProfile || employeeChoices.length > 1) ? { opacity: 0.65, cursor: "not-allowed" } : undefined}
           />
 
           {/* ── DATE PICKER ── */}
@@ -573,7 +619,6 @@ export default function TimeClockPage() {
             {(fetching || fetchingHistorical) ? <><span className="loading-spinner" /> CHECKING…</> : <>{isHistorical ? "📂 LOAD RECORD" : "🔍 CHECK MY STATUS"}</>}
           </button>
 
-          {/* Status bar */}
           {!isHistorical && (
             <div className="status-bar">
               {fetching
@@ -595,7 +640,6 @@ export default function TimeClockPage() {
             </div>
           )}
 
-          {/* ── PUNCH BUTTONS ── only for today, only if allowed ── */}
           {!isHistorical && (
             <>
               <div className="buttons-grid">
@@ -650,8 +694,6 @@ export default function TimeClockPage() {
                   {actionModal.action === "check-out"    && "👋 CHECKED OUT!"}
                 </div>
                 <div className="action-modal-message">{actionModal.message}</div>
-
-                {/* ── EMPLOYEE PROFILE IN MODAL ── */}
                 {employeeProfile && (
                   <div className="modal-emp-banner">
                     <img
@@ -669,8 +711,6 @@ export default function TimeClockPage() {
                     </div>
                   </div>
                 )}
-
-                {/* Camera */}
                 <div className="camera-section">
                   {!capturedPhoto && !cameraError && (
                     <>

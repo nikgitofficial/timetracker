@@ -1211,3 +1211,14 @@ button:disabled { opacity: 0.2; cursor: not-allowed; filter: grayscale(0.5); }
   letter-spacing: 0.5px;
   margin-top: 2px;
 }
+.name-picker-section { margin-bottom: 16px; padding: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }
+.name-picker-title { font-family: 'Share Tech Mono', monospace; font-size: 13px; color: #00ff88; letter-spacing: 2px; margin-bottom: 4px; }
+.name-picker-subtitle { font-size: 11px; color: #6b7280; margin-bottom: 12px; }
+.name-picker-list { display: flex; flex-direction: column; gap: 8px; }
+.name-picker-option { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; cursor: pointer; transition: all 0.2s; text-align: left; width: 100%; }
+.name-picker-option:hover { background: rgba(0,255,136,0.08); border-color: rgba(0,255,136,0.3); }
+.name-picker-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+.name-picker-name { font-size: 13px; font-weight: 600; color: #e2e8f0; }
+.name-picker-meta { font-size: 11px; color: #6b7280; margin-top: 2px; }
+.name-picker-status-active { color: #16a34a; }
+.name-picker-status-inactive, .name-picker-status-on-leave, .name-picker-status-absent { color: #dc2626; }
