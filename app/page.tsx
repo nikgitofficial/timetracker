@@ -231,7 +231,7 @@ function drawPaws(ctx: CanvasRenderingContext2D, w: number, h: number) {
 }
 
 const FRAMES: PhotoFrame[] = [
-  { id: "none",    label: "No Frame", emoji: "📷", preview: "linear-gradient(135deg,#1a1a2e,#16213e)", draw: drawNone    },
+ 
   { id: "matrix",  label: "Matrix",   emoji: "💚", preview: "linear-gradient(135deg,#001a00,#003300)", draw: drawMatrix  },
   { id: "sparkle", label: "Sparkle",  emoji: "✨", preview: "linear-gradient(135deg,#1a1200,#3d2e00)", draw: drawSparkle },
   { id: "bloom",   label: "Bloom",    emoji: "🌸", preview: "linear-gradient(135deg,#2d0020,#4a0030)", draw: drawBloom   },
@@ -317,7 +317,7 @@ export default function TimeClockPage() {
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── FRAME STATE ──
-  const [selectedFrame, setSelectedFrame] = useState<PhotoFrame>(FRAMES[0]);
+  const [selectedFrame, setSelectedFrame] = useState<PhotoFrame>(FRAMES[1]);
   const [framePickerOpen, setFramePickerOpen] = useState(false);
 
   const actionContent = {
