@@ -255,6 +255,105 @@ export default function AttendanceCalendar() {
   const [lightbox, setLightbox] = useState<{ selfies: SelfieEntry[]; index: number; name: string } | null>(null);
   const [analyticsEmp, setAnalyticsEmp] = useState<Employee | null>(null);
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
+  
+
+  /* ── EXPORT HELPERS ── */
+function buildCalExportRows(records: TimeEntry[], employees: Employee[]) {
+  const DOW_NAMES_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  return [...records].sort((a,b) => a.date.localeCompare(b.date)).map(r => {
+    const emp = employees.find(e => e.email === r.email && e.employeeName === r.employeeName);
+    const late = (() => {
+      if (!r.checkIn) return false;
+      const d = new Date(r.checkIn);
+      if (emp?.shift?.startTime) {
+        const [sh, sm] = emp.shift.startTime.split(":").map(Number);
+        return d.getHours() * 60 + d.getMinutes() > sh * 60 + sm + (emp.shift.graceMinutes ?? 15);
+      }
+      return d.getHours() > 9;
+    })();
+    return {
+      "Date": r.date,
+      "Day": DOW_NAMES_SHORT[new Date(r.date + "T12:00:00").getDay()],
+      "Employee": r.employeeName,
+      "Email": r.email,
+      "Role": emp?.role ?? "—",
+      "Campaign": emp?.campaign ?? "—",
+      "Shift": emp?.shift?.startTime ? `${fmtTime12(emp.shift.startTime)} – ${fmtTime12(emp.shift.endTime)}` : "—",
+      "Check In": fmt(r.checkIn),
+      "Check Out": fmt(r.checkOut),
+      "On Time?": r.checkIn ? (late ? "Late" : "On Time") : "—",
+      "Break Sessions": r.breaks?.length
+        ? r.breaks.map((b,i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
+        : "—",
+      "Total Break": fmtMins(r.totalBreak),
+      "Bio Break Sessions": r.bioBreaks?.length
+        ? r.bioBreaks.map((b,i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
+        : "—",
+      "Total Bio Break": fmtMins(r.totalBioBreak),
+      "Total Worked": fmtMins(r.totalWorked),
+      "Status": r.status.replace(/-/g, " "),
+    };
+  });
+}
+
+async function exportCalToExcel(records: TimeEntry[], employees: Employee[], label: string) {
+  const XLSX = await import("xlsx");
+  const rows = buildCalExportRows(records, employees);
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [
+    {wch:12},{wch:5},{wch:22},{wch:28},{wch:8},{wch:14},{wch:18},
+    {wch:10},{wch:10},{wch:9},{wch:52},{wch:12},{wch:52},{wch:14},{wch:13},{wch:12},
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+  XLSX.writeFile(wb, `attendance-${label}-${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label: string) {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  doc.setFillColor(26, 25, 22);
+  doc.rect(0, 0, 297, 18, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("TIMETRACK — Attendance Export", 14, 12);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(160, 160, 150);
+  doc.text(`Period: ${label}  |  Records: ${records.length}  |  Generated: ${new Date().toLocaleString()}`, 160, 12);
+
+  const rows = buildCalExportRows(records, employees);
+  const headers = Object.keys(rows[0] || {});
+  const body = rows.map(r => headers.map(h => r[h as keyof typeof r]));
+
+  autoTable(doc, {
+    head: [headers],
+    body,
+    startY: 22,
+    styles: { font: "helvetica", fontSize: 7, cellPadding: 2.5, textColor: [30,28,26], lineColor: [228,226,221], lineWidth: 0.3 },
+    headStyles: { fillColor: [242,241,238], textColor: [120,116,110], fontStyle: "bold", fontSize: 6.5, cellPadding: { top:4, bottom:4, left:2.5, right:2.5 } },
+    alternateRowStyles: { fillColor: [250,249,246] },
+    columnStyles: {
+      0: { fontStyle: "bold" },
+      9: { textColor: [217,119,6] },   // On Time?
+      14: { textColor: [22,163,74], fontStyle: "bold" }, // Total Worked
+    },
+    margin: { left: 10, right: 10 },
+  });
+
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(160, 160, 150);
+    doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.getWidth() / 2, doc.internal.pageSize.getHeight() - 5, { align: "center" });
+  }
+  doc.save(`attendance-${label}-${new Date().toISOString().slice(0,10)}.pdf`);
+}
 
   useEffect(() => {
     fetch("/api/auth/me", { credentials:"include" })
@@ -865,13 +964,29 @@ export default function AttendanceCalendar() {
         </div>
       )}
 
-      {/* HEADER */}
+   {/* HEADER */}
       <div className="ac-header">
         <div>
           <h1 className="ac-title">Attendance Calendar</h1>
           <p className="ac-subtitle">Visual Attendance Overview</p>
         </div>
         <div className="ac-header-actions">
+          <button
+            className="btn-export btn-export-excel"
+            onClick={async () => { setExporting("excel"); try { await exportCalToExcel(filteredRecords, employees, headerTitle); } finally { setExporting(null); } }}
+            disabled={exporting !== null || filteredRecords.length === 0}
+            title="Export to Excel"
+          >
+            {exporting === "excel" ? <><span className="export-spinner" /> Exporting…</> : <>↓ Excel</>}
+          </button>
+          <button
+            className="btn-export btn-export-pdf"
+            onClick={async () => { setExporting("pdf"); try { await exportCalToPDF(filteredRecords, employees, headerTitle); } finally { setExporting(null); } }}
+            disabled={exporting !== null || filteredRecords.length === 0}
+            title="Export to PDF"
+          >
+            {exporting === "pdf" ? <><span className="export-spinner" /> Exporting…</> : <>↓ PDF</>}
+          </button>
           {activeTab==="calendar" && (
             <div className="ac-view-toggle">
               <button className={`ac-toggle-btn${viewMode==="monthly"?" active":""}`} onClick={() => setViewMode("monthly")}>Monthly</button>
@@ -881,6 +996,7 @@ export default function AttendanceCalendar() {
           {activeTab==="calendar" && <button className="ac-today-btn" onClick={goToday}>Today</button>}
         </div>
       </div>
+      
 
       {/* TABS */}
       <div className="ac-tabs">
@@ -892,33 +1008,29 @@ export default function AttendanceCalendar() {
       {/* ── CAMPAIGN + EMPLOYEE FILTERS ── */}
       <div className="ac-filter-bar">
         {/* Campaign row */}
+        {/* Campaign row */}
         {allCampaigns.length > 0 && (
           <div className="ac-campaign-filter-row">
             <span className="ac-filter-label-inline">📁 Campaign</span>
-            <div className="ac-campaign-pills">
-              <button
-                className={`ac-campaign-pill${!selectedCampaign ? " active" : ""}`}
-                onClick={() => { setSelectedCampaign(""); setSelectedEmployee(null); }}
+            <div className="ac-emp-dropdown-wrap">
+              <div className="ac-emp-dropdown-avatar-slot">
+                {selectedCampaign
+                  ? <span className="ac-emp-dd-avatar" style={{ width:26, height:26, borderRadius:"50%", background: campaignColor(selectedCampaign, allCampaigns).bg, border:`1.5px solid ${campaignColor(selectedCampaign, allCampaigns).border}`, display:"flex", alignItems:"center", justifyContent:"center" }}><span style={{ width:8, height:8, borderRadius:"50%", background: campaignColor(selectedCampaign, allCampaigns).dot, display:"inline-block" }} /></span>
+                  : <span className="ac-emp-dd-avatar ac-emp-dd-avatar--all">ALL</span>}
+              </div>
+              <select
+                className="ac-emp-dropdown"
+                value={selectedCampaign}
+                onChange={e => { setSelectedCampaign(e.target.value); setSelectedEmployee(null); }}
               >
-                All
-              </button>
-              {allCampaigns.map(c => {
-                const cc = campaignColor(c, allCampaigns);
-                const isActive = selectedCampaign === c;
-                return (
-                  <button
-                    key={c}
-                    className={`ac-campaign-pill${isActive ? " active" : ""}`}
-                    style={isActive
-                      ? { background: cc.text, borderColor: cc.text, color: "#fff" }
-                      : { background: cc.bg, borderColor: cc.border, color: cc.text }}
-                    onClick={() => { setSelectedCampaign(isActive ? "" : c); setSelectedEmployee(null); }}
-                  >
-                    <span className="ac-campaign-dot" style={{ background: isActive ? "rgba(255,255,255,0.7)" : cc.dot }} />
-                    {c}
-                  </button>
-                );
-              })}
+                <option value="">All Campaigns</option>
+                {allCampaigns.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              {selectedCampaign && (
+                <button className="ac-emp-dd-clear" onClick={() => { setSelectedCampaign(""); setSelectedEmployee(null); }} title="Clear filter">✕</button>
+              )}
             </div>
           </div>
         )}
