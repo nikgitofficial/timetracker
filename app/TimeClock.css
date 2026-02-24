@@ -1581,5 +1581,145 @@ button:disabled { opacity: 0.2; cursor: not-allowed; filter: grayscale(0.5); }
   0%, 100% { box-shadow: 0 0 10px rgba(0,255,136,0.2); }
   50%       { box-shadow: 0 0 18px rgba(0,255,136,0.45); }
 }
+/* ═══════════════════════════════════════════════════════════════
+   COLLAPSIBLE SECTION TOGGLES — append to bottom of TimeClock.css
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── TOGGLE BUTTON ── */
+.section-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+  text-align: left;
+  margin-bottom: 0;
+  /* override global button resets */
+  flex-direction: row !important;
+  font-size: unset;
+  letter-spacing: unset;
+  text-transform: unset;
+}
+
+.section-toggle-btn:hover {
+  background: rgba(0,255,136,0.06);
+  border-color: rgba(0,255,136,0.25);
+  box-shadow: 0 0 14px rgba(0,255,136,0.07);
+}
+
+.section-toggle-btn:active {
+  transform: scale(0.99);
+}
+
+/* Selfie variant — teal accent */
+.section-toggle-btn-selfie:hover {
+  background: rgba(45,212,191,0.06);
+  border-color: rgba(45,212,191,0.25);
+  box-shadow: 0 0 14px rgba(45,212,191,0.07);
+}
+
+/* ── ARROW ICON ── */
+.section-toggle-icon {
+  font-size: 11px;
+  color: #4b5563;
+  flex-shrink: 0;
+  transition: color 0.18s;
+  font-family: monospace;
+  line-height: 1;
+  min-width: 10px;
+}
+
+.section-toggle-btn:hover .section-toggle-icon {
+  color: #00ff88;
+}
+
+.section-toggle-btn-selfie:hover .section-toggle-icon {
+  color: #2dd4bf;
+}
+
+/* ── TITLE ── */
+.section-toggle-title {
+  flex: 1;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6b7280;
+  transition: color 0.18s;
+}
+
+.section-toggle-btn:hover .section-toggle-title {
+  color: #d1d5db;
+}
+
+/* ── PILL (summary when collapsed, or photo count) ── */
+.section-toggle-pill {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: #00ff88;
+  background: rgba(0,255,136,0.1);
+  border: 1px solid rgba(0,255,136,0.25);
+  border-radius: 20px;
+  padding: 2px 10px;
+  white-space: nowrap;
+  animation: pillFadeIn 0.2s ease;
+}
+
+.section-toggle-pill-selfie {
+  color: #2dd4bf;
+  background: rgba(45,212,191,0.1);
+  border-color: rgba(45,212,191,0.25);
+}
+
+@keyframes pillFadeIn {
+  from { opacity: 0; transform: scale(0.88); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── COLLAPSIBLE PANEL — CSS grid trick for smooth height animation ── */
+.section-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.section-collapse-open {
+  grid-template-rows: 1fr;
+}
+
+.section-collapse-inner {
+  overflow: hidden;
+  padding-top: 0;
+  transition: padding-top 0.32s;
+}
+
+.section-collapse-open .section-collapse-inner {
+  padding-top: 12px;
+}
+
+/* ── SELFIE GALLERY: remove old title (replaced by toggle btn) ── */
+.selfie-gallery {
+  margin-top: 20px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 16px;
+}
+
+.selfie-gallery-title {
+  display: none; /* replaced by section-toggle-btn-selfie */
+}
+
+/* ── TIMELINE: give breathing room above the toggle header ── */
+.timeline {
+  margin-top: 28px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 16px;
+}
 
 

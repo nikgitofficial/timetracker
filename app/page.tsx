@@ -44,204 +44,6 @@ interface EmployeeProfile {
   status: "active" | "on-leave" | "absent" | "inactive";
 }
 
-// ── PHOTO FRAMES ─────────────────────────────────────────────────
-interface PhotoFrame {
-  id: string;
-  label: string;
-  emoji: string;
-  preview: string;
-  draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
-}
-
-function drawNone(_ctx: CanvasRenderingContext2D, _w: number, _h: number) {}
-
-function drawMatrix(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const bw = Math.max(8, Math.round(w * 0.025));
-  ctx.save();
-  ctx.shadowColor = "#00ff88";
-  ctx.shadowBlur = 18;
-  ctx.strokeStyle = "#00ff88";
-  ctx.lineWidth = bw;
-  ctx.strokeRect(bw / 2, bw / 2, w - bw, h - bw);
-  const cs = Math.round(w * 0.1);
-  ctx.lineWidth = bw * 1.8;
-  [[0,0],[w,0],[0,h],[w,h]].forEach(([cx,cy]) => {
-    ctx.beginPath();
-    ctx.moveTo(cx === 0 ? cx + cs : cx - cs, cy);
-    ctx.lineTo(cx, cy);
-    ctx.lineTo(cx, cy === 0 ? cy + cs : cy - cs);
-    ctx.stroke();
-  });
-  ctx.restore();
-}
-
-function drawSparkle(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const bw = Math.max(10, Math.round(w * 0.03));
-  const grad = ctx.createLinearGradient(0, 0, w, h);
-  grad.addColorStop(0, "#ffd700");
-  grad.addColorStop(0.5, "#fffacd");
-  grad.addColorStop(1, "#ffd700");
-  ctx.save();
-  ctx.shadowColor = "#ffd700";
-  ctx.shadowBlur = 14;
-  ctx.strokeStyle = grad;
-  ctx.lineWidth = bw;
-  ctx.strokeRect(bw / 2, bw / 2, w - bw, h - bw);
-  const stars = [[bw*2,bw*2],[w-bw*2,bw*2],[bw*2,h-bw*2],[w-bw*2,h-bw*2],[w/2,bw*1.5]];
-  ctx.fillStyle = "#fff8dc";
-  ctx.shadowBlur = 8;
-  stars.forEach(([sx, sy]) => {
-    const r = Math.round(w * 0.022);
-    ctx.beginPath();
-    for (let i = 0; i < 8; i++) {
-      const angle = (i * Math.PI) / 4;
-      const rad = i % 2 === 0 ? r : r * 0.4;
-      ctx.lineTo(sx + rad * Math.cos(angle), sy + rad * Math.sin(angle));
-    }
-    ctx.closePath();
-    ctx.fill();
-  });
-  ctx.restore();
-}
-
-function drawBloom(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const vgrad = ctx.createRadialGradient(w/2, h/2, h*0.3, w/2, h/2, h*0.75);
-  vgrad.addColorStop(0, "rgba(255,182,193,0)");
-  vgrad.addColorStop(1, "rgba(255,105,180,0.45)");
-  ctx.save();
-  ctx.fillStyle = vgrad;
-  ctx.fillRect(0, 0, w, h);
-  const petals = [[0,0],[w,0],[0,h],[w,h]];
-  const pr = Math.round(w * 0.09);
-  const colors = ["#ff69b4","#ff85c2","#ffb6c1","#ff1493","#ffc0cb"];
-  petals.forEach(([px, py]) => {
-    for (let i = 0; i < 5; i++) {
-      const angle = (i * Math.PI * 2) / 5;
-      const cx2 = px + (px === 0 ? pr : -pr) + pr * 0.7 * Math.cos(angle);
-      const cy2 = py + (py === 0 ? pr : -pr) + pr * 0.7 * Math.sin(angle);
-      ctx.beginPath();
-      ctx.arc(cx2, cy2, pr * 0.45, 0, Math.PI * 2);
-      ctx.fillStyle = colors[i] + "cc";
-      ctx.fill();
-    }
-    ctx.beginPath();
-    ctx.arc(px + (px === 0 ? pr : -pr), py + (py === 0 ? pr : -pr), pr * 0.3, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffe4e1";
-    ctx.fill();
-  });
-  ctx.restore();
-}
-
-function drawFire(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const top = ctx.createLinearGradient(0, 0, 0, h * 0.25);
-  top.addColorStop(0, "rgba(255,69,0,0.75)");
-  top.addColorStop(1, "rgba(255,69,0,0)");
-  const bot = ctx.createLinearGradient(0, h, 0, h * 0.75);
-  bot.addColorStop(0, "rgba(255,140,0,0.75)");
-  bot.addColorStop(1, "rgba(255,140,0,0)");
-  const left = ctx.createLinearGradient(0, 0, w * 0.25, 0);
-  left.addColorStop(0, "rgba(255,69,0,0.5)");
-  left.addColorStop(1, "rgba(255,69,0,0)");
-  const right = ctx.createLinearGradient(w, 0, w * 0.75, 0);
-  right.addColorStop(0, "rgba(255,140,0,0.5)");
-  right.addColorStop(1, "rgba(255,140,0,0)");
-  ctx.save();
-  ctx.fillStyle = top;   ctx.fillRect(0, 0, w, h * 0.25);
-  ctx.fillStyle = bot;   ctx.fillRect(0, h * 0.75, w, h * 0.25);
-  ctx.fillStyle = left;  ctx.fillRect(0, 0, w * 0.25, h);
-  ctx.fillStyle = right; ctx.fillRect(w * 0.75, 0, w * 0.25, h);
-  ctx.font = `${Math.round(w * 0.1)}px serif`;
-  ctx.textAlign = "left";  ctx.fillText("🔥", w * 0.01, h * 0.98);
-  ctx.textAlign = "right"; ctx.fillText("🔥", w * 0.99, h * 0.98);
-  ctx.restore();
-}
-
-function drawVIP(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const bw = Math.max(10, Math.round(w * 0.035));
-  const grad = ctx.createLinearGradient(0, 0, w, h);
-  grad.addColorStop(0,   "#b8860b");
-  grad.addColorStop(0.25,"#ffd700");
-  grad.addColorStop(0.5, "#fffacd");
-  grad.addColorStop(0.75,"#ffd700");
-  grad.addColorStop(1,   "#b8860b");
-  ctx.save();
-  ctx.shadowColor = "#ffd700"; ctx.shadowBlur = 20;
-  ctx.strokeStyle = grad; ctx.lineWidth = bw;
-  ctx.strokeRect(bw / 2, bw / 2, w - bw, h - bw);
-  ctx.font = `${Math.round(w * 0.12)}px serif`;
-  ctx.textAlign = "center"; ctx.shadowBlur = 12;
-  ctx.fillText("👑", w / 2, bw * 3.5);
-  ctx.font = `${Math.round(w * 0.07)}px serif`;
-  ctx.textAlign = "left";  ctx.fillText("⭐", bw, h - bw);
-  ctx.textAlign = "right"; ctx.fillText("⭐", w - bw, h - bw);
-  ctx.restore();
-}
-
-function drawNight(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const vgrad = ctx.createRadialGradient(w/2, h/2, h*0.25, w/2, h/2, h*0.8);
-  vgrad.addColorStop(0, "rgba(0,0,30,0)");
-  vgrad.addColorStop(1, "rgba(0,0,60,0.6)");
-  ctx.save();
-  ctx.fillStyle = vgrad; ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
-  const rng = (seed: number) => ((seed * 1664525 + 1013904223) & 0xffffffff) / 0xffffffff;
-  for (let i = 0; i < 18; i++) {
-    ctx.beginPath();
-    ctx.arc(rng(i*3+1)*w, rng(i*3+2)*h*0.5, rng(i*3+3)*2.5+0.5, 0, Math.PI*2);
-    ctx.fill();
-  }
-  ctx.font = `${Math.round(w * 0.1)}px serif`;
-  ctx.textAlign = "right"; ctx.fillText("🌙", w * 0.97, h * 0.1);
-  ctx.restore();
-}
-
-function drawCute(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const bw = Math.max(9, Math.round(w * 0.028));
-  const grad = ctx.createLinearGradient(0, 0, w, h);
-  grad.addColorStop(0,    "#ff9de2");
-  grad.addColorStop(0.25, "#a8d8ea");
-  grad.addColorStop(0.5,  "#ffffd2");
-  grad.addColorStop(0.75, "#b5ead7");
-  grad.addColorStop(1,    "#ff9de2");
-  ctx.save();
-  ctx.shadowColor = "#ff9de2"; ctx.shadowBlur = 10;
-  ctx.strokeStyle = grad; ctx.lineWidth = bw;
-  ctx.strokeRect(bw / 2, bw / 2, w - bw, h - bw);
-  ctx.font = `${Math.round(w * 0.11)}px serif`;
-  ctx.textAlign = "center"; ctx.fillText("🎀", w / 2, bw * 3);
-  const paws = [[0.08,0.92],[0.92,0.92],[0.08,0.55],[0.92,0.55]];
-  ctx.font = `${Math.round(w * 0.07)}px serif`;
-  paws.forEach(([px, py]) => { ctx.textAlign = "center"; ctx.fillText("🐾", px * w, py * h); });
-  ctx.restore();
-}
-
-function drawPaws(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  ctx.save();
-  const size = Math.round(w * 0.085);
-  ctx.font = `${size}px serif`;
-  const positions = [
-    [0.05,0.05],[0.5,0.03],[0.95,0.05],
-    [0.03,0.5],[0.97,0.5],
-    [0.05,0.95],[0.5,0.97],[0.95,0.95],
-    [0.2,0.03],[0.8,0.03],[0.2,0.97],[0.8,0.97],
-  ];
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  positions.forEach(([px, py]) => ctx.fillText("🐾", px * w, py * h));
-  ctx.restore();
-}
-
-const FRAMES: PhotoFrame[] = [
- 
-  { id: "matrix",  label: "Matrix",   emoji: "💚", preview: "linear-gradient(135deg,#001a00,#003300)", draw: drawMatrix  },
-  { id: "sparkle", label: "Sparkle",  emoji: "✨", preview: "linear-gradient(135deg,#1a1200,#3d2e00)", draw: drawSparkle },
-  { id: "bloom",   label: "Bloom",    emoji: "🌸", preview: "linear-gradient(135deg,#2d0020,#4a0030)", draw: drawBloom   },
-  { id: "fire",    label: "Fire",     emoji: "🔥", preview: "linear-gradient(135deg,#3d0000,#1a0800)", draw: drawFire    },
-  { id: "vip",     label: "VIP",      emoji: "👑", preview: "linear-gradient(135deg,#1a1000,#2d2000)", draw: drawVIP     },
-  { id: "night",   label: "Night",    emoji: "🌙", preview: "linear-gradient(135deg,#000010,#00001a)", draw: drawNight   },
-  { id: "cute",    label: "Cute",     emoji: "🎀", preview: "linear-gradient(135deg,#2d0020,#002020)", draw: drawCute    },
-  { id: "paws",    label: "Paws",     emoji: "🐾", preview: "linear-gradient(135deg,#0a0a0a,#1a1200)", draw: drawPaws    },
-];
-
 const ROLE_COLOR: Record<string, string> = {
   OM: "#7c3aed", TL: "#1d4ed8", Agent: "#15803d", Other: "#6b7280",
 };
@@ -284,6 +86,10 @@ export default function TimeClockPage() {
   const [fetching, setFetching] = useState(false);
   const [actionModal, setActionModal] = useState<{ action: Action; image: string; message: string } | null>(null);
 
+  // ── COLLAPSIBLE SECTIONS ──
+  const [timelineOpen, setTimelineOpen] = useState(true);
+  const [selfieOpen, setSelfieOpen] = useState(true);
+
   // ── EMPLOYEE PROFILE STATE ──
   const [employeeProfile, setEmployeeProfile] = useState<EmployeeProfile | null>(null);
   const [employeeChoices, setEmployeeChoices] = useState<EmployeeProfile[]>([]);
@@ -316,9 +122,10 @@ export default function TimeClockPage() {
   const [photoUploaded, setPhotoUploaded] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── FRAME STATE ──
-  const [selectedFrame, setSelectedFrame] = useState<PhotoFrame>(FRAMES[1]);
-  const [framePickerOpen, setFramePickerOpen] = useState(false);
+  // ── FIX: refs to hold live values so camera callbacks never read stale closure state ──
+  const actionModalRef = useRef<{ action: Action; image: string; message: string } | null>(null);
+  const emailRef = useRef("");
+  const nameRef = useRef("");
 
   const actionContent = {
     "check-in":     { images: ["/images/checkin1.jpg",  "/images/checkin2.jpg"],  messages: ["Welcome! Let's make today productive guys alright rock in roll baby! 💪", "Good to see you! Waka na late hehehehe! 🚀"] },
@@ -355,7 +162,6 @@ export default function TimeClockPage() {
     if (actionModal) {
       setCapturedPhoto(null); setCameraError(null); setCameraReady(false);
       setPhotoUploaded(false); setCountdown(null);
-      setSelectedFrame(FRAMES[0]); setFramePickerOpen(false);
       startCamera();
     } else {
       stopCamera(); stopPreview();
@@ -375,16 +181,20 @@ export default function TimeClockPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [lightbox]);
 
-  // restart preview when frame changes
-  useEffect(() => {
-    if (cameraReady && !capturedPhoto) {
-      stopPreview();
-      startPreview();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFrame, cameraReady, capturedPhoto]);
+  // ── FIX: keep refs in sync with their state counterparts ──
+  useEffect(() => { actionModalRef.current = actionModal; }, [actionModal]);
+  useEffect(() => { emailRef.current = email; }, [email]);
+  useEffect(() => { nameRef.current = name; }, [name]);
 
-  // ── LIVE PREVIEW: mirrors video + draws frame overlay onto canvas ──
+  // ── Auto-open timeline when new entry loads ──
+  useEffect(() => {
+    if (entry) { setTimelineOpen(true); setSelfieOpen(true); }
+  }, [entry]);
+  useEffect(() => {
+    if (historicalEntry) { setTimelineOpen(true); setSelfieOpen(true); }
+  }, [historicalEntry]);
+
+  // ── LIVE PREVIEW: mirrors video onto canvas ──
   const startPreview = useCallback(() => {
     const loop = () => {
       const video = videoRef.current;
@@ -393,19 +203,20 @@ export default function TimeClockPage() {
         previewAnimRef.current = requestAnimationFrame(loop);
         return;
       }
-      canvas.width  = video.videoWidth  || 640;
-      canvas.height = video.videoHeight || 480;
+      const w = video.videoWidth  || 640;
+      const h = video.videoHeight || 480;
+      if (canvas.width  !== w) canvas.width  = w;
+      if (canvas.height !== h) canvas.height = h;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.save();
       ctx.scale(-1, 1);
       ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
       ctx.restore();
-      selectedFrame.draw(ctx, canvas.width, canvas.height);
       previewAnimRef.current = requestAnimationFrame(loop);
     };
     previewAnimRef.current = requestAnimationFrame(loop);
-  }, [selectedFrame]);
+  }, []);
 
   const stopPreview = () => {
     if (previewAnimRef.current) { cancelAnimationFrame(previewAnimRef.current); previewAnimRef.current = null; }
@@ -434,7 +245,14 @@ export default function TimeClockPage() {
   }, []);
 
   const handleSelectProfile = (profile: EmployeeProfile) => {
-    setEmployeeProfile(profile); setEmployeeChoices([]); setName(profile.employeeName); fetchStatus(email, profile.employeeName);
+    // Clear choices immediately so the picker disappears on the first click
+    // and cannot intercept a phantom second tap/click
+    setEmployeeChoices([]);
+    setLookupDone(true);
+    setEmployeeProfile(profile);
+    setName(profile.employeeName);
+    // Use the email ref (always current) instead of the potentially-stale closure value
+    fetchStatus(emailRef.current, profile.employeeName);
   };
 
   const handleEmailChange = (val: string) => {
@@ -451,11 +269,14 @@ export default function TimeClockPage() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
-  videoRef.current?.play();
-  setCameraReady(true);
-  startPreview();
-    startCountdown();
-};
+          videoRef.current!.play()
+            .then(() => {
+              setCameraReady(true);
+              startPreview();
+              startCountdown();
+            })
+            .catch(() => setCameraError("Could not start camera playback."));
+        };
       }
     } catch { setCameraError("Camera access denied or unavailable."); }
   };
@@ -474,11 +295,14 @@ export default function TimeClockPage() {
     }, 1000);
   };
 
-  // ── CAPTURE: bakes video + frame onto hidden canvas ──
   const capturePhoto = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
+    if (video.readyState < 2 || video.videoWidth === 0) {
+      setCameraError("Camera not ready — tap Snap Now to retry.");
+      return;
+    }
     canvas.width  = video.videoWidth  || 640;
     canvas.height = video.videoHeight || 480;
     const ctx = canvas.getContext("2d");
@@ -487,34 +311,40 @@ export default function TimeClockPage() {
     ctx.scale(-1, 1);
     ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
     ctx.restore();
-    selectedFrame.draw(ctx, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
+    if (!dataUrl || dataUrl === "data:," || dataUrl.length < 5000) {
+      setCameraError("Blank frame captured — tap Snap Now.");
+      return;
+    }
     stopPreview();
     setCapturedPhoto(dataUrl);
     stopCamera();
-    uploadPhoto(dataUrl);
+    const currentAction = actionModalRef.current?.action;
+    const currentEmail  = emailRef.current;
+    const currentName   = nameRef.current;
+    if (!currentAction || !currentEmail || !currentName) return;
+    uploadPhoto(dataUrl, currentAction, currentEmail, currentName);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFrame]);
+  }, []);
 
-  const uploadPhoto = async (dataUrl: string) => {
-    if (!actionModal) return;
+  const uploadPhoto = async (dataUrl: string, action: string, emailVal: string, nameVal: string) => {
     setUploadingPhoto(true);
     try {
       const res = await fetch(dataUrl); const blob = await res.blob();
       const file = new File([blob], `selfie-${Date.now()}.jpg`, { type: "image/jpeg" });
       const fd = new FormData();
-      fd.append("file", file); fd.append("email", email.trim().toLowerCase());
-      fd.append("employeeName", name.trim()); fd.append("action", actionModal.action);
+      fd.append("file", file); fd.append("email", emailVal.trim().toLowerCase());
+      fd.append("employeeName", nameVal.trim()); fd.append("action", action);
       const uploadRes = await fetch("/api/time/selfie", { method: "POST", body: fd });
       const data = await uploadRes.json();
       if (uploadRes.ok) { setPhotoUploaded(true); if (data.entry) setEntry(data.entry); }
-    } catch { /* silent */ }
+      else { console.error("Selfie upload failed:", data.error); }
+    } catch (err) { console.error("Selfie upload error:", err); }
     finally { setUploadingPhoto(false); }
   };
 
   const retakePhoto = () => {
     setCapturedPhoto(null); setPhotoUploaded(false);
-    setSelectedFrame(FRAMES[0]); setFramePickerOpen(false);
     startCamera();
   };
 
@@ -522,7 +352,6 @@ export default function TimeClockPage() {
     stopCamera(); stopPreview();
     if (countdownRef.current) clearInterval(countdownRef.current);
     setActionModal(null);
-    setSelectedFrame(FRAMES[0]); setFramePickerOpen(false);
   };
 
   // ── FETCH STATUS ──
@@ -635,46 +464,88 @@ export default function TimeClockPage() {
   // ── TIMELINE ──
   const renderTimeline = (rec: TimeEntry, liveWorked?: number) => {
     const worked = liveWorked !== undefined ? liveWorked : rec.totalWorked;
+    const isToday = rec.date === today;
+    const dateLabel = isToday
+      ? "Today's Log"
+      : `Record for ${new Date(rec.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}`;
+    const selfieCount = rec.selfies?.length ?? 0;
+
     return (
       <div className="timeline">
-        <div className="timeline-title">
-          {rec.date === today ? "Today's Log" : `Record for ${new Date(rec.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}`}
-        </div>
-        <div className="timeline-row"><span className="timeline-label">🟢 Check In</span><span className="timeline-value">{formatTime(rec.checkIn)}</span></div>
-        {rec.breaks?.length > 0 && rec.breaks.map((b, i) => (
-          <div key={b._id || i} className="break-block">
-            <div className="break-block-header">Break #{i + 1}</div>
-            <div className="timeline-row timeline-row-indent"><span className="timeline-label">☕ Start</span><span className="timeline-value">{formatTime(b.breakIn)}</span></div>
-            <div className="timeline-row timeline-row-indent"><span className="timeline-label">🔄 End</span><span className="timeline-value">{b.breakOut ? formatTime(b.breakOut) : <span className="live-tag">ON BREAK</span>}</span></div>
-            {b.duration > 0 && <div className="timeline-row timeline-row-indent"><span className="timeline-label">⏱ Duration</span><span className="timeline-value accent-amber">{formatMinutes(b.duration)}</span></div>}
-          </div>
-        ))}
-        {rec.bioBreaks?.length > 0 && rec.bioBreaks.map((b, i) => (
-          <div key={b._id || i} className="bio-block">
-            <div className="bio-block-header">🚻 Bio Break #{i + 1}</div>
-            <div className="timeline-row timeline-row-indent"><span className="timeline-label">Start</span><span className="timeline-value">{formatTime(b.breakIn)}</span></div>
-            <div className="timeline-row timeline-row-indent"><span className="timeline-label">End</span><span className="timeline-value">{b.breakOut ? formatTime(b.breakOut) : <span className="live-tag-teal">BIO BREAK</span>}</span></div>
-            {b.duration > 0 && <div className="timeline-row timeline-row-indent"><span className="timeline-label">⏱ Duration</span><span className="timeline-value accent-teal">{formatMinutes(b.duration)}</span></div>}
-          </div>
-        ))}
-        <div className="timeline-row"><span className="timeline-label">🔴 Check Out</span><span className="timeline-value">{formatTime(rec.checkOut)}</span></div>
-        <div className="summary-row">
-          <div className="summary-chip"><div className="summary-chip-label">Hours Worked</div><div className="summary-chip-value">{worked > 0 ? formatMinutes(worked) : "—"}</div></div>
-          <div className="summary-chip"><div className="summary-chip-label">Total Break</div><div className="summary-chip-value amber">{rec.totalBreak > 0 ? formatMinutes(rec.totalBreak) : "—"}</div></div>
-          <div className="summary-chip"><div className="summary-chip-label">Bio Break</div><div className="summary-chip-value teal">{rec.totalBioBreak > 0 ? formatMinutes(rec.totalBioBreak) : "—"}</div></div>
-          <div className="summary-chip"><div className="summary-chip-label">Breaks</div><div className="summary-chip-value blue">{rec.breaks?.length ?? 0}</div></div>
-        </div>
-        {rec.selfies && rec.selfies.length > 0 && (
-          <div className="selfie-gallery">
-            <div className="selfie-gallery-title">📸 {rec.date === today ? "Today's" : "Day's"} Selfies</div>
-            <div className="selfie-grid">
-              {rec.selfies.map((s, i) => (
-                <div key={s._id} className="selfie-item" onClick={() => setLightbox({ selfies: rec.selfies!, index: i })}>
-                  <img src={s.url} alt={s.action} />
-                  <div className="selfie-badge">{actionLabels[s.action] ?? s.action}</div>
-                </div>
-              ))}
+
+        {/* ── TIMELINE COLLAPSIBLE HEADER ── */}
+        <button
+          className="section-toggle-btn"
+          onClick={() => setTimelineOpen(o => !o)}
+          aria-expanded={timelineOpen}
+        >
+          <span className="section-toggle-icon">{timelineOpen ? "▾" : "▸"}</span>
+          <span className="section-toggle-title">📋 {dateLabel}</span>
+          {!timelineOpen && (
+            <span className="section-toggle-pill">
+              {worked > 0 ? formatMinutes(worked) : "—"}
+            </span>
+          )}
+          <span className={`section-toggle-chevron${timelineOpen ? " open" : ""}`} />
+        </button>
+
+        {/* ── COLLAPSIBLE BODY ── */}
+        <div className={`section-collapse${timelineOpen ? " section-collapse-open" : ""}`}>
+          <div className="section-collapse-inner">
+            <div className="timeline-row"><span className="timeline-label">🟢 Check In</span><span className="timeline-value">{formatTime(rec.checkIn)}</span></div>
+            {rec.breaks?.length > 0 && rec.breaks.map((b, i) => (
+              <div key={b._id || i} className="break-block">
+                <div className="break-block-header">Break #{i + 1}</div>
+                <div className="timeline-row timeline-row-indent"><span className="timeline-label">☕ Start</span><span className="timeline-value">{formatTime(b.breakIn)}</span></div>
+                <div className="timeline-row timeline-row-indent"><span className="timeline-label">🔄 End</span><span className="timeline-value">{b.breakOut ? formatTime(b.breakOut) : <span className="live-tag">ON BREAK</span>}</span></div>
+                {b.duration > 0 && <div className="timeline-row timeline-row-indent"><span className="timeline-label">⏱ Duration</span><span className="timeline-value accent-amber">{formatMinutes(b.duration)}</span></div>}
+              </div>
+            ))}
+            {rec.bioBreaks?.length > 0 && rec.bioBreaks.map((b, i) => (
+              <div key={b._id || i} className="bio-block">
+                <div className="bio-block-header">🚻 Bio Break #{i + 1}</div>
+                <div className="timeline-row timeline-row-indent"><span className="timeline-label">Start</span><span className="timeline-value">{formatTime(b.breakIn)}</span></div>
+                <div className="timeline-row timeline-row-indent"><span className="timeline-label">End</span><span className="timeline-value">{b.breakOut ? formatTime(b.breakOut) : <span className="live-tag-teal">BIO BREAK</span>}</span></div>
+                {b.duration > 0 && <div className="timeline-row timeline-row-indent"><span className="timeline-label">⏱ Duration</span><span className="timeline-value accent-teal">{formatMinutes(b.duration)}</span></div>}
+              </div>
+            ))}
+            <div className="timeline-row"><span className="timeline-label">🔴 Check Out</span><span className="timeline-value">{formatTime(rec.checkOut)}</span></div>
+            <div className="summary-row">
+              <div className="summary-chip"><div className="summary-chip-label">Hours Worked</div><div className="summary-chip-value">{worked > 0 ? formatMinutes(worked) : "—"}</div></div>
+              <div className="summary-chip"><div className="summary-chip-label">Total Break</div><div className="summary-chip-value amber">{rec.totalBreak > 0 ? formatMinutes(rec.totalBreak) : "—"}</div></div>
+              <div className="summary-chip"><div className="summary-chip-label">Bio Break</div><div className="summary-chip-value teal">{rec.totalBioBreak > 0 ? formatMinutes(rec.totalBioBreak) : "—"}</div></div>
+              <div className="summary-chip"><div className="summary-chip-label">Breaks</div><div className="summary-chip-value blue">{rec.breaks?.length ?? 0}</div></div>
             </div>
+          </div>
+        </div>
+
+        {/* ── SELFIE GALLERY with its own toggle ── */}
+        {selfieCount > 0 && (
+          <div className="selfie-gallery">
+
+            <button
+              className="section-toggle-btn section-toggle-btn-selfie"
+              onClick={() => setSelfieOpen(o => !o)}
+              aria-expanded={selfieOpen}
+            >
+              <span className="section-toggle-icon">{selfieOpen ? "▾" : "▸"}</span>
+              <span className="section-toggle-title">📸 {isToday ? "Today's" : "Day's"} Selfies</span>
+              <span className="section-toggle-pill section-toggle-pill-selfie">{selfieCount} photo{selfieCount !== 1 ? "s" : ""}</span>
+            </button>
+
+            <div className={`section-collapse${selfieOpen ? " section-collapse-open" : ""}`}>
+              <div className="section-collapse-inner">
+                <div className="selfie-grid">
+                  {rec.selfies!.map((s, i) => (
+                    <div key={s._id} className="selfie-item" onClick={() => setLightbox({ selfies: rec.selfies!, index: i })}>
+                      <img src={s.url} alt={s.action} />
+                      <div className="selfie-badge">{actionLabels[s.action] ?? s.action}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
           </div>
         )}
       </div>
@@ -729,7 +600,7 @@ export default function TimeClockPage() {
               <div className="name-picker-subtitle">Multiple accounts found for this email. Please select your name:</div>
               <div className="name-picker-list">
                 {employeeChoices.map((ep, i) => (
-                  <button key={i} className="name-picker-option" onClick={() => handleSelectProfile(ep)}>
+                  <button key={i} type="button" className="name-picker-option" onClick={(e) => { e.stopPropagation(); handleSelectProfile(ep); }}>
                     <img src={ep.profilePic || `https://ui-avatars.com/api/?name=${encodeURIComponent(ep.employeeName)}&background=1a2744&color=00ff88&size=48`} alt={ep.employeeName} className="name-picker-avatar" />
                     <div className="name-picker-info">
                       <div className="name-picker-name">{ep.employeeName}</div>
@@ -869,7 +740,6 @@ export default function TimeClockPage() {
                 <div className="camera-section">
                   {!capturedPhoto && !cameraError && (
                     <>
-                      {/* Preview canvas: shows mirrored video + live frame overlay */}
                       <canvas ref={previewCanvasRef} className="tc-preview-canvas" />
                       {cameraReady && countdown !== null && (
                         <div className="camera-overlay"><div className="countdown-ring" key={countdown}>{countdown}</div></div>
@@ -892,28 +762,6 @@ export default function TimeClockPage() {
 
                   {capturedPhoto && (
                     <img src={capturedPhoto} alt="Your selfie" className="camera-captured-photo" />
-                  )}
-
-                  {/* ── FRAME PICKER ── */}
-                  {cameraReady && !capturedPhoto && (
-                    <div className="filter-bar">
-                      <button className="filter-toggle-btn" onClick={() => setFramePickerOpen(p => !p)} title="Photo frames">
-                        <span>{selectedFrame.emoji}</span>
-                        <span className="filter-toggle-label">{selectedFrame.label}</span>
-                        <span style={{ fontSize: 9, opacity: 0.6 }}>{framePickerOpen ? "▲" : "▼"}</span>
-                      </button>
-                      {framePickerOpen && (
-                        <div className="filter-picker">
-                          {FRAMES.map(f => (
-                            <button key={f.id} className={`filter-chip${selectedFrame.id === f.id ? " filter-chip-active" : ""}`} onClick={() => { setSelectedFrame(f); setFramePickerOpen(false); }}>
-                              <div className="filter-chip-swatch" style={{ background: f.preview }} />
-                              <span className="filter-chip-emoji">{f.emoji}</span>
-                              <span className="filter-chip-name">{f.label}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
                   )}
 
                   {(capturedPhoto || cameraReady) && (

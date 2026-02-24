@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { HiHome, HiUser, HiCog, HiX, HiChevronRight, HiChevronLeft, HiLogout, HiUserGroup } from "react-icons/hi";
+import { HiHome, HiUser, HiCog, HiX, HiChevronRight, HiChevronLeft, HiLogout, HiUserGroup ,HiCalendar} from "react-icons/hi";
 
 import DashboardHome from "./components/DashboardHome";
+import AttendanceCalendar from "./components/AttendanceCalendar";
 import Profile from "./components/Profile";
 import Settings from "./components/Settings";
 import Employees from "./components/Employees";
@@ -16,7 +17,7 @@ type User = {
   photoUrl?: string;
 };
 
-type Page = "dashboard" | "profile" | "settings" | "employees";
+type Page = "dashboard" | "profile" | "settings" | "employees" | "calendar";
 
 export default function DashboardSPA() {
   const [user, setUser] = useState<User | null>(null);
@@ -131,6 +132,7 @@ export default function DashboardSPA() {
 
   const navItems = [
     { name: "Home", icon: <HiHome size={17} />, key: "dashboard" },
+    { name: "Calendar",   icon: <HiCalendar size={17} />,  key: "calendar"   },
     { name: "Profile", icon: <HiUser size={17} />, key: "profile" },
     { name: "Settings", icon: <HiCog size={17} />, key: "settings" },
     { name: "Employees", icon: <HiUserGroup size={17} />, key: "employees" }, // ✅ changed from HiCog to HiUserGroup
@@ -160,6 +162,7 @@ export default function DashboardSPA() {
   const renderPage = () => {
     switch (activePage) {
       case "dashboard": return <DashboardHome user={user} />;
+      case "calendar":   return <AttendanceCalendar />;
       case "profile": return <Profile user={user} onPhotoUpload={handlePhotoUpload} />;
       case "settings": return <Settings user={user} />;
       case "employees": return <Employees user={user} />;
@@ -169,6 +172,7 @@ export default function DashboardSPA() {
 
   const PAGE_LABELS: Record<Page, string> = {
     dashboard: "Records",
+    calendar:  "Calendar",
     profile: "Profile",
     settings: "Settings",
     employees: "Employees",

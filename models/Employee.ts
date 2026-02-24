@@ -1,30 +1,50 @@
 // models/Employee.ts
-import mongoose, { Schema, models, model } from "mongoose";
+import { Schema, models, model } from "mongoose";
+
+const ShiftSchema = new Schema(
+  {
+    label:         { type: String, default: "Regular" },
+    startTime:     { type: String, default: "09:00" },   // "HH:MM" 24h
+    endTime:       { type: String, default: "18:00" },   // "HH:MM" 24h
+    graceMinutes:  { type: Number, default: 15 },
+    restDays: {
+      type: [String],
+      default: ["Saturday", "Sunday"],
+      enum: ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
+    },
+    effectiveFrom: { type: String, default: "" },        // "YYYY-MM-DD"
+  },
+  { _id: false }
+);
 
 const EmployeeSchema = new Schema(
   {
-    ownerEmail: { type: String, required: true, trim: true, lowercase: true },
+    ownerEmail:   { type: String, required: true, trim: true, lowercase: true },
     employeeName: { type: String, required: true, trim: true },
-    email: { type: String, required: true, trim: true, lowercase: true },
+    email:        { type: String, required: true, trim: true, lowercase: true },
     role: {
       type: String,
       enum: ["OM", "TL", "Agent", "Other"],
       default: "Agent",
     },
-    campaign: { type: String, trim: true, default: "" },
+    campaign:   { type: String, trim: true, default: "" },
     status: {
       type: String,
       enum: ["active", "on-leave", "absent", "inactive"],
       default: "active",
     },
-    birthdate: { type: String, default: "" }, // "YYYY-MM-DD"
-    profilePic: { type: String, default: "" }, // URL from Vercel Blob
-    notes: { type: String, default: "" },
+    birthdate:  { type: String, default: "" },
+    profilePic: { type: String, default: "" },
+    notes:      { type: String, default: "" },
+    // ✅ "shift" — matches shift/route.ts, Employees.tsx, and AttendanceCalendar
+    shift: { type: ShiftSchema, default: undefined },
   },
   { timestamps: true }
 );
 
-// ✅ CHANGED: unique per owner + email + name — allows same email with different names under one owner
 EmployeeSchema.index({ ownerEmail: 1, email: 1, employeeName: 1 }, { unique: true });
 
-export default models.Employee || model("Employee", EmployeeSchema);
+// ✅ Clear cached model so schema changes always take effect
+if (models.Employee) delete (models as Record<string, unknown>).Employee;
+
+export default model("Employee", EmployeeSchema);

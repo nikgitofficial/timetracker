@@ -40,7 +40,6 @@ export async function POST(req: NextRequest) {
   if (!email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return NextResponse.json({ error: "Valid email is required" }, { status: 400 });
 
-  // ✅ CHANGED: block duplicate only if same owner + same email + same name
   const existing = await Employee.findOne({
     ownerEmail,
     email: email.trim().toLowerCase(),
@@ -75,7 +74,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PUT — update employee
+// PUT — update employee (never overwrites shift unless explicitly included)
 export async function PUT(req: NextRequest) {
   const ownerEmail = await getOwnerEmail();
   if (!ownerEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -84,8 +83,15 @@ export async function PUT(req: NextRequest) {
   const { id, ...updates } = body;
   if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
+  // ✅ Never allow these to be overwritten via this route
   delete updates.ownerEmail;
   delete updates.email;
+
+  // ✅ KEY FIX: If `shift` was not explicitly sent in the body, remove it from
+  //    updates so we don't accidentally wipe the shift saved via /api/employees/shift
+  if (!("shift" in body)) {
+    delete updates.shift;
+  }
 
   const employee = await Employee.findOneAndUpdate(
     { _id: id, ownerEmail },
