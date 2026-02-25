@@ -145,6 +145,15 @@ function countWorkingDays(from: string, to: string, shift?: Shift | null): numbe
   return count;
 }
 
+/* ── DATE FILTER HELPERS ── */
+function monthStart(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;
+}
+function monthEnd(d: Date): string {
+  const last = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(last).padStart(2,"0")}`;
+}
+
 interface EmpStats {
   employee: Employee;
   records: TimeEntry[];
@@ -256,61 +265,150 @@ export default function AttendanceCalendar() {
   const [analyticsEmp, setAnalyticsEmp] = useState<Employee | null>(null);
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
-  
+
+  /* ── DATE FILTER STATE (new) ── */
+  const todayStr = toLocalStr(new Date());
+  const [filterFrom, setFilterFrom] = useState(monthStart(new Date()));
+  const [filterTo,   setFilterTo]   = useState(monthEnd(new Date()));
+  const [useCustomRange, setUseCustomRange] = useState(false);
+
+  /* ── QUICK RANGE HELPER (new) ── */
+  const applyQuickRange = (key: string) => {
+    const now = new Date();
+    if (key === "this_month") {
+      setFilterFrom(monthStart(now));
+      setFilterTo(monthEnd(now));
+      setUseCustomRange(true);
+    } else if (key === "last_month") {
+      const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      setFilterFrom(monthStart(lm));
+      setFilterTo(monthEnd(lm));
+      setUseCustomRange(true);
+    } else if (key === "last_7") {
+      const d = new Date(now); d.setDate(d.getDate() - 6);
+      setFilterFrom(toLocalStr(d));
+      setFilterTo(todayStr);
+      setUseCustomRange(true);
+    } else if (key === "last_30") {
+      const d = new Date(now); d.setDate(d.getDate() - 29);
+      setFilterFrom(toLocalStr(d));
+      setFilterTo(todayStr);
+      setUseCustomRange(true);
+    } else if (key === "all") {
+      setFilterFrom("2020-01-01");
+      setFilterTo(todayStr);
+      setUseCustomRange(true);
+    }
+  };
 
   /* ── EXPORT HELPERS ── */
-function buildCalExportRows(records: TimeEntry[], employees: Employee[]) {
+function buildCalExportRows(records: TimeEntry[], employees: Employee[], from: string, to: string) {
   const DOW_NAMES_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  return [...records].sort((a,b) => a.date.localeCompare(b.date)).map(r => {
-    const emp = employees.find(e => e.email === r.email && e.employeeName === r.employeeName);
-    const late = (() => {
-      if (!r.checkIn) return false;
-      const d = new Date(r.checkIn);
-      if (emp?.shift?.startTime) {
-        const [sh, sm] = emp.shift.startTime.split(":").map(Number);
-        return d.getHours() * 60 + d.getMinutes() > sh * 60 + sm + (emp.shift.graceMinutes ?? 15);
-      }
-      return d.getHours() > 9;
-    })();
-    return {
-      "Date": r.date,
-      "Day": DOW_NAMES_SHORT[new Date(r.date + "T12:00:00").getDay()],
-      "Employee": r.employeeName,
-      "Email": r.email,
-      "Role": emp?.role ?? "—",
-      "Campaign": emp?.campaign ?? "—",
-      "Shift": emp?.shift?.startTime ? `${fmtTime12(emp.shift.startTime)} – ${fmtTime12(emp.shift.endTime)}` : "—",
-      "Check In": fmt(r.checkIn),
-      "Check Out": fmt(r.checkOut),
-      "On Time?": r.checkIn ? (late ? "Late" : "On Time") : "—",
-      "Break Sessions": r.breaks?.length
-        ? r.breaks.map((b,i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
-        : "—",
-      "Total Break": fmtMins(r.totalBreak),
-      "Bio Break Sessions": r.bioBreaks?.length
-        ? r.bioBreaks.map((b,i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
-        : "—",
-      "Total Bio Break": fmtMins(r.totalBioBreak),
-      "Total Worked": fmtMins(r.totalWorked),
-      "Status": r.status.replace(/-/g, " "),
-    };
+  const todayStr = toLocalStr(new Date());
+
+  // Build full date range
+  const dateRange: string[] = [];
+  const cur = new Date(from + "T12:00:00");
+  const end = new Date(to + "T12:00:00");
+  while (cur <= end) { dateRange.push(toLocalStr(cur)); cur.setDate(cur.getDate() + 1); }
+
+  const recordMap = new Map<string, TimeEntry[]>();
+  records.forEach(r => {
+    const key = r.date;
+    if (!recordMap.has(key)) recordMap.set(key, []);
+    recordMap.get(key)!.push(r);
   });
+
+  const rows: Record<string, string>[] = [];
+
+  dateRange.forEach(dateStr => {
+    const dowIdx = new Date(dateStr + "T12:00:00").getDay();
+    const dow = DOW_NAMES_SHORT[dowIdx];
+    const dayRecords = recordMap.get(dateStr) || [];
+
+    if (dayRecords.length === 0) {
+      const empsToShow = records.length > 0
+        ? [...new Set(records.map(r => `${r.email}::${r.employeeName}`))]
+            .map(key => employees.find(e => `${e.email}::${e.employeeName}` === key))
+            .filter(Boolean) as Employee[]
+        : [];
+
+      if (empsToShow.length === 0) return;
+
+      empsToShow.forEach(emp => {
+        const rest = isRestDay(dateStr, emp?.shift ?? null);
+        const weekend = !emp?.shift && (dowIdx === 0 || dowIdx === 6);
+        let dayType = rest ? "Rest Day" : weekend ? "Weekend" : dateStr > todayStr ? "Future" : dateStr === todayStr ? "Today" : "Absent";
+
+        rows.push({
+          "Date": dateStr, "Day": dow, "Day Type": dayType,
+          "Employee": emp?.employeeName ?? "—", "Email": emp?.email ?? "—",
+          "Role": emp?.role ?? "—", "Campaign": emp?.campaign ?? "—",
+          "Shift": emp?.shift?.startTime ? `${fmtTime12(emp.shift.startTime)} – ${fmtTime12(emp.shift.endTime)}` : "—",
+          "Check In": "—", "Check Out": "—", "On Time?": "—",
+          "Break Sessions": "—", "Total Break": "—",
+          "Bio Break Sessions": "—", "Total Bio Break": "—",
+          "Total Worked": "—", "Status": dayType, "Selfies": "0",
+        });
+      });
+    } else {
+      dayRecords.forEach(r => {
+        const emp = employees.find(e => e.email === r.email && e.employeeName === r.employeeName);
+        const rest = isRestDay(dateStr, emp?.shift ?? null);
+        const late = isLate(r.checkIn, emp?.shift ?? null);
+        const dayType = rest ? "Rest Day" : late ? "Present (Late)" : "Present (On Time)";
+
+        rows.push({
+          "Date": dateStr, "Day": dow, "Day Type": dayType,
+          "Employee": r.employeeName, "Email": r.email,
+          "Role": emp?.role ?? "—", "Campaign": emp?.campaign ?? "—",
+          "Shift": emp?.shift?.startTime ? `${fmtTime12(emp.shift.startTime)} – ${fmtTime12(emp.shift.endTime)}` : "—",
+          "Check In": fmt(r.checkIn), "Check Out": fmt(r.checkOut),
+          "On Time?": r.checkIn ? (late ? "Late" : "On Time") : "—",
+          "Break Sessions": r.breaks?.length
+            ? r.breaks.map((b,i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
+            : "—",
+          "Total Break": fmtMins(r.totalBreak),
+          "Bio Break Sessions": r.bioBreaks?.length
+            ? r.bioBreaks.map((b,i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
+            : "—",
+          "Total Bio Break": fmtMins(r.totalBioBreak),
+          "Total Worked": fmtMins(r.totalWorked),
+          "Status": r.status.replace(/-/g, " "),
+          "Selfies": `${r.selfies?.length ?? 0}`,
+        });
+      });
+    }
+  });
+
+  return rows;
 }
 
-async function exportCalToExcel(records: TimeEntry[], employees: Employee[], label: string) {
+async function exportCalToExcel(
+  records: TimeEntry[], employees: Employee[],
+  label: string, from: string, to: string
+) {
   const XLSX = await import("xlsx");
-  const rows = buildCalExportRows(records, employees);
+  const rows = buildCalExportRows(records, employees, from, to);
+  if (!rows || rows.length === 0) return;
+
   const ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = [
-    {wch:12},{wch:5},{wch:22},{wch:28},{wch:8},{wch:14},{wch:18},
-    {wch:10},{wch:10},{wch:9},{wch:52},{wch:12},{wch:52},{wch:14},{wch:13},{wch:12},
+    {wch:12},{wch:5},{wch:18},           // Date, Day, Day Type
+    {wch:22},{wch:28},{wch:8},{wch:14},  // Employee, Email, Role, Campaign
+    {wch:18},                             // Shift
+    {wch:10},{wch:10},{wch:9},           // Check In/Out, On Time?
+    {wch:52},{wch:12},                   // Break Sessions, Total Break
+    {wch:52},{wch:16},                   // Bio Break Sessions, Total Bio Break
+    {wch:13},{wch:14},{wch:8},           // Total Worked, Status, Selfies
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Attendance");
-  XLSX.writeFile(wb, `attendance-${label}-${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb, `attendance-${label.replace(/[^a-zA-Z0-9]/g,"-")}-${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
-async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label: string) {
+// FIX 1: Added from and to parameters to exportCalToPDF
+async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label: string, from: string, to: string) {
   const { default: jsPDF } = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -326,7 +424,8 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
   doc.setTextColor(160, 160, 150);
   doc.text(`Period: ${label}  |  Records: ${records.length}  |  Generated: ${new Date().toLocaleString()}`, 160, 12);
 
-  const rows = buildCalExportRows(records, employees);
+  // FIX 2: Pass from and to into buildCalExportRows (was missing before)
+  const rows = buildCalExportRows(records, employees, from, to);
   const headers = Object.keys(rows[0] || {});
   const body = rows.map(r => headers.map(h => r[h as keyof typeof r]));
 
@@ -362,7 +461,11 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
       .catch(() => {});
   }, []);
 
+  /* ── MODIFIED: getDateRange now respects custom range when useCustomRange is true ── */
   const getDateRange = useCallback(() => {
+    if (useCustomRange) {
+      return { from: filterFrom, to: filterTo };
+    }
     if (viewMode === "monthly") {
       const y = currentDate.getFullYear(); const m = currentDate.getMonth();
       const from = `${y}-${String(m+1).padStart(2,"0")}-01`;
@@ -375,7 +478,7 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
       const sat = new Date(sun); sat.setDate(sun.getDate()+6);
       return { from:toLocalStr(sun), to:toLocalStr(sat) };
     }
-  }, [currentDate, viewMode]);
+  }, [currentDate, viewMode, useCustomRange, filterFrom, filterTo]);
 
   const fetchRecords = useCallback(async () => {
     if (!user?.email) return;
@@ -422,12 +525,17 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
   }, [selectedCampaign, selectedEmployee]);
 
   const navigate = (dir: -1|1) => {
+    // If using custom range, nav exits custom range and goes back to calendar nav
+    if (useCustomRange) setUseCustomRange(false);
     const d = new Date(currentDate);
     if (viewMode === "monthly") d.setMonth(d.getMonth()+dir);
     else d.setDate(d.getDate()+dir*7);
     setCurrentDate(d);
   };
-  const goToday = () => setCurrentDate(new Date());
+  const goToday = () => {
+    setUseCustomRange(false);
+    setCurrentDate(new Date());
+  };
 
   const getEmpShift = useCallback((email: string, name: string): Shift | undefined => {
     return employees.find(e => e.email === email && e.employeeName === name)?.shift;
@@ -478,7 +586,19 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
     return Array.from({ length:7 }, (_,i) => { const d=new Date(sun); d.setDate(sun.getDate()+i); return toLocalStr(d); });
   };
 
-  const calDays = viewMode === "monthly" ? buildMonthDays() : buildWeekDays();
+  /* ── For custom range, build a flat list of all dates in range ── */
+  const buildCustomRangeDays = (): string[] => {
+    const days: string[] = [];
+    const d = new Date(from + "T12:00:00");
+    const end = new Date(to + "T12:00:00");
+    while (d <= end) { days.push(toLocalStr(d)); d.setDate(d.getDate()+1); }
+    return days;
+  };
+
+  const calDays = useCustomRange
+    ? buildCustomRangeDays()
+    : viewMode === "monthly" ? buildMonthDays() : buildWeekDays();
+
   const today = toLocalStr(new Date());
 
   const recordsByDate = filteredRecords.reduce<Record<string,TimeEntry[]>>((acc,r) => {
@@ -504,14 +624,28 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
 
   const focusStats = analyticsEmp ? allStats.find(s => s.employee._id === analyticsEmp._id) || null : null;
 
-  const headerTitle = viewMode === "monthly"
-    ? `${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`
-    : (() => {
-        const day = currentDate.getDay();
-        const sun = new Date(currentDate); sun.setDate(currentDate.getDate()-day);
-        const sat = new Date(sun); sat.setDate(sun.getDate()+6);
-        return `${sun.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${sat.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}`;
-      })();
+  /* ── Header title: show custom range label when active ── */
+  const headerTitle = useCustomRange
+    ? (() => {
+        const f = new Date(filterFrom + "T12:00:00");
+        const t = new Date(filterTo + "T12:00:00");
+        return `${f.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${t.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}`;
+      })()
+    : viewMode === "monthly"
+      ? `${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`
+      : (() => {
+          const day = currentDate.getDay();
+          const sun = new Date(currentDate); sun.setDate(currentDate.getDate()-day);
+          const sat = new Date(sun); sat.setDate(sun.getDate()+6);
+          return `${sun.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${sat.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}`;
+        })();
+
+  /* ── Filter label for the filter card ── */
+  const filterLabel = (() => {
+    const f = new Date(filterFrom + "T12:00:00");
+    const t = new Date(filterTo   + "T12:00:00");
+    return `${f.toLocaleDateString("en-US", { month:"short", day:"numeric" })} – ${t.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}`;
+  })();
 
   const activeEmployeeKeys = new Set(filteredRecords.map(r => `${r.email}::${r.employeeName}`));
 
@@ -585,7 +719,7 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
   const renderAnalytics = () => {
     if (focusStats) {
       const s = focusStats;
-      const sparkDays = calDays.filter(d => d !== null) as string[];
+      const sparkDays = (useCustomRange ? buildCustomRangeDays() : calDays).filter(d => d !== null) as string[];
       const empShift = s.employee.shift;
       return (
         <div className="analytics-detail">
@@ -971,9 +1105,10 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
           <p className="ac-subtitle">Visual Attendance Overview</p>
         </div>
         <div className="ac-header-actions">
+          {/* FIX 3: Both export buttons now pass `from` and `to` */}
           <button
             className="btn-export btn-export-excel"
-            onClick={async () => { setExporting("excel"); try { await exportCalToExcel(filteredRecords, employees, headerTitle); } finally { setExporting(null); } }}
+            onClick={async () => { setExporting("excel"); try { await exportCalToExcel(filteredRecords, employees, headerTitle, from, to); } finally { setExporting(null); } }}
             disabled={exporting !== null || filteredRecords.length === 0}
             title="Export to Excel"
           >
@@ -981,13 +1116,13 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
           </button>
           <button
             className="btn-export btn-export-pdf"
-            onClick={async () => { setExporting("pdf"); try { await exportCalToPDF(filteredRecords, employees, headerTitle); } finally { setExporting(null); } }}
+            onClick={async () => { setExporting("pdf"); try { await exportCalToPDF(filteredRecords, employees, headerTitle, from, to); } finally { setExporting(null); } }}
             disabled={exporting !== null || filteredRecords.length === 0}
             title="Export to PDF"
           >
             {exporting === "pdf" ? <><span className="export-spinner" /> Exporting…</> : <>↓ PDF</>}
           </button>
-          {activeTab==="calendar" && (
+          {activeTab==="calendar" && !useCustomRange && (
             <div className="ac-view-toggle">
               <button className={`ac-toggle-btn${viewMode==="monthly"?" active":""}`} onClick={() => setViewMode("monthly")}>Monthly</button>
               <button className={`ac-toggle-btn${viewMode==="weekly"?" active":""}`} onClick={() => setViewMode("weekly")}>Weekly</button>
@@ -996,7 +1131,6 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
           {activeTab==="calendar" && <button className="ac-today-btn" onClick={goToday}>Today</button>}
         </div>
       </div>
-      
 
       {/* TABS */}
       <div className="ac-tabs">
@@ -1005,9 +1139,96 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
         <button className={`ac-tab${activeTab==="leaderboard"?" active":""}`} onClick={() => setActiveTab("leaderboard")}>🏆 Leaderboard</button>
       </div>
 
+      {/* ══════════════════════════════════════════════════════════════
+          DATE FILTER CARD (new — same style as employee portal)
+      ══════════════════════════════════════════════════════════════ */}
+      <div className="ac-date-filter-card">
+        <div className="ac-date-filter-top">
+          <div>
+            <div className="ac-date-filter-title">📅 Date Range Filter</div>
+            <div className="ac-date-filter-label">
+              {filterLabel} · {filteredRecords.length} record{filteredRecords.length !== 1 ? "s" : ""}
+              {useCustomRange && (
+                <span className="ac-date-filter-active-badge">Custom Range Active</span>
+              )}
+            </div>
+          </div>
+          {useCustomRange && (
+            <button
+              className="ac-date-filter-reset"
+              onClick={() => { setUseCustomRange(false); setFilterFrom(monthStart(new Date())); setFilterTo(monthEnd(new Date())); }}
+            >
+              ✕ Clear Custom Range
+            </button>
+          )}
+        </div>
+
+        {/* Date pickers */}
+        <div className="ac-date-filter-row">
+          <div className="ac-date-filter-wrap">
+            <span className="ac-date-filter-lbl">FROM</span>
+            <input
+              type="date"
+              className="ac-date-filter-input"
+              value={filterFrom}
+              max={filterTo}
+              onChange={e => { setFilterFrom(e.target.value); setUseCustomRange(true); }}
+            />
+          </div>
+          <span className="ac-date-filter-sep">—</span>
+          <div className="ac-date-filter-wrap">
+            <span className="ac-date-filter-lbl">TO</span>
+            <input
+              type="date"
+              className="ac-date-filter-input"
+              value={filterTo}
+              min={filterFrom}
+              max={todayStr}
+              onChange={e => { setFilterTo(e.target.value); setUseCustomRange(true); }}
+            />
+          </div>
+        </div>
+
+        {/* Quick range buttons */}
+        <div className="ac-date-quick-btns">
+          {[
+            { key:"last_7",     label:"Last 7 days" },
+            { key:"last_30",    label:"Last 30 days" },
+            { key:"this_month", label:"This month" },
+            { key:"last_month", label:"Last month" },
+            { key:"all",        label:"All time" },
+          ].map(({ key, label }) => {
+            const now = new Date();
+            let isActive = false;
+            if (!useCustomRange) { isActive = false; }
+            else if (key === "this_month") isActive = filterFrom === monthStart(now) && filterTo === monthEnd(now);
+            else if (key === "last_month") {
+              const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+              isActive = filterFrom === monthStart(lm) && filterTo === monthEnd(lm);
+            } else if (key === "last_7") {
+              const d7 = new Date(now); d7.setDate(d7.getDate() - 6);
+              isActive = filterFrom === toLocalStr(d7) && filterTo === todayStr;
+            } else if (key === "last_30") {
+              const d30 = new Date(now); d30.setDate(d30.getDate() - 29);
+              isActive = filterFrom === toLocalStr(d30) && filterTo === todayStr;
+            } else if (key === "all") {
+              isActive = filterFrom === "2020-01-01" && filterTo === todayStr;
+            }
+            return (
+              <button
+                key={key}
+                className={`ac-date-quick-btn${isActive ? " active" : ""}`}
+                onClick={() => applyQuickRange(key)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* ── CAMPAIGN + EMPLOYEE FILTERS ── */}
       <div className="ac-filter-bar">
-        {/* Campaign row */}
         {/* Campaign row */}
         {allCampaigns.length > 0 && (
           <div className="ac-campaign-filter-row">
@@ -1083,9 +1304,12 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
         <>
           <div className="ac-calendar-card">
             <div className="ac-cal-nav">
-              <button className="ac-nav-btn" onClick={() => navigate(-1)}>‹</button>
-              <div className="ac-cal-title">{headerTitle}</div>
-              <button className="ac-nav-btn" onClick={() => navigate(1)}>›</button>
+              {!useCustomRange && <button className="ac-nav-btn" onClick={() => navigate(-1)}>‹</button>}
+              <div className="ac-cal-title">
+                {headerTitle}
+                {useCustomRange && <span className="ac-cal-custom-badge">Custom Range</span>}
+              </div>
+              {!useCustomRange && <button className="ac-nav-btn" onClick={() => navigate(1)}>›</button>}
               {loading && <span className="ac-loading-dot" />}
             </div>
             <div className="ac-legend">
@@ -1095,12 +1319,19 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
               <span className="ac-legend-item"><span className="ac-legend-dot ac-legend-today" />Today</span>
               <span className="ac-legend-item"><span className="ac-legend-dot ac-legend-restday" />Rest Day</span>
             </div>
-            {viewMode==="monthly" && (
+            {!useCustomRange && viewMode==="monthly" && (
               <div className="ac-day-headers">{DAYS.map(d => <div key={d} className="ac-day-header-cell">{d}</div>)}</div>
             )}
-            {viewMode==="monthly"
-              ? <div className="ac-month-grid">{calDays.map((d) => renderDayCell(d, false))}</div>
-              : <div className="ac-week-grid">{(calDays as string[]).map(d => renderDayCell(d, true))}</div>}
+            {useCustomRange ? (
+              /* Custom range: show as a scrollable list of day cells */
+              <div className="ac-custom-range-grid">
+                {buildCustomRangeDays().map(d => renderDayCell(d, false))}
+              </div>
+            ) : viewMode==="monthly" ? (
+              <div className="ac-month-grid">{calDays.map((d) => renderDayCell(d, false))}</div>
+            ) : (
+              <div className="ac-week-grid">{(calDays as string[]).map(d => renderDayCell(d, true))}</div>
+            )}
           </div>
 
           {selectedEmployee && (() => {

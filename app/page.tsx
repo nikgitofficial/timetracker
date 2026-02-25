@@ -816,8 +816,14 @@ export default function TimeClockPage() {
         )}
 
         <div className="footer-link">
-          Admin? <a href="/login">Login to view all records →</a>
-          <p>Crafted by Nikko with coffee and love ☕</p>
+  Admin? <a href="/login">Login to view all records →</a>
+  <p style={{ marginTop: 8 }}>
+    Employee?{" "}
+    <a href="/employee-login" style={{ color: "#00ff88" }}>
+      View your attendance portal →
+    </a>
+  </p>
+  <p>Crafted by Nikko with coffee and love ☕</p>
           <p>A gift from nikko to nationgraph family</p>
           <p>Under OM mirah cluster lead by: TL Cris Arandilla</p>
         </div>
