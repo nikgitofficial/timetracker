@@ -306,7 +306,6 @@ function buildCalExportRows(records: TimeEntry[], employees: Employee[], from: s
   const DOW_NAMES_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const todayStr = toLocalStr(new Date());
 
-  // Build full date range
   const dateRange: string[] = [];
   const cur = new Date(from + "T12:00:00");
   const end = new Date(to + "T12:00:00");
@@ -314,16 +313,14 @@ function buildCalExportRows(records: TimeEntry[], employees: Employee[], from: s
 
   const recordMap = new Map<string, TimeEntry[]>();
   records.forEach(r => {
-    const key = r.date;
-    if (!recordMap.has(key)) recordMap.set(key, []);
-    recordMap.get(key)!.push(r);
+    if (!recordMap.has(r.date)) recordMap.set(r.date, []);
+    recordMap.get(r.date)!.push(r);
   });
 
   const rows: Record<string, string>[] = [];
 
   dateRange.forEach(dateStr => {
     const dowIdx = new Date(dateStr + "T12:00:00").getDay();
-    const dow = DOW_NAMES_SHORT[dowIdx];
     const dayRecords = recordMap.get(dateStr) || [];
 
     if (dayRecords.length === 0) {
@@ -338,17 +335,21 @@ function buildCalExportRows(records: TimeEntry[], employees: Employee[], from: s
       empsToShow.forEach(emp => {
         const rest = isRestDay(dateStr, emp?.shift ?? null);
         const weekend = !emp?.shift && (dowIdx === 0 || dowIdx === 6);
-        let dayType = rest ? "Rest Day" : weekend ? "Weekend" : dateStr > todayStr ? "Future" : dateStr === todayStr ? "Today" : "Absent";
+        const dayType = rest ? "Rest Day" : weekend ? "Weekend" : dateStr > todayStr ? "Future" : dateStr === todayStr ? "Today" : "Absent";
 
         rows.push({
-          "Date": dateStr, "Day": dow, "Day Type": dayType,
-          "Employee": emp?.employeeName ?? "—", "Email": emp?.email ?? "—",
-          "Role": emp?.role ?? "—", "Campaign": emp?.campaign ?? "—",
-          "Shift": emp?.shift?.startTime ? `${fmtTime12(emp.shift.startTime)} – ${fmtTime12(emp.shift.endTime)}` : "—",
-          "Check In": "—", "Check Out": "—", "On Time?": "—",
-          "Break Sessions": "—", "Total Break": "—",
-          "Bio Break Sessions": "—", "Total Bio Break": "—",
-          "Total Worked": "—", "Status": dayType, "Selfies": "0",
+          "Employee Name": emp?.employeeName ?? "—",
+          "Email": emp?.email ?? "—",
+          "Date": dateStr,
+          "Check In": "—",
+          "Check Out": "—",
+          "Break Sessions": "—",
+          "Total Break": "—",
+          "Bio Break Sessions": "—",
+          "Total Bio Break": "—",
+          "Total Worked": "—",
+          "Status": dayType,
+          "_dayType": dayType, // hidden, used for coloring only
         });
       });
     } else {
@@ -359,23 +360,22 @@ function buildCalExportRows(records: TimeEntry[], employees: Employee[], from: s
         const dayType = rest ? "Rest Day" : late ? "Present (Late)" : "Present (On Time)";
 
         rows.push({
-          "Date": dateStr, "Day": dow, "Day Type": dayType,
-          "Employee": r.employeeName, "Email": r.email,
-          "Role": emp?.role ?? "—", "Campaign": emp?.campaign ?? "—",
-          "Shift": emp?.shift?.startTime ? `${fmtTime12(emp.shift.startTime)} – ${fmtTime12(emp.shift.endTime)}` : "—",
-          "Check In": fmt(r.checkIn), "Check Out": fmt(r.checkOut),
-          "On Time?": r.checkIn ? (late ? "Late" : "On Time") : "—",
+          "Employee Name": r.employeeName,
+          "Email": r.email,
+          "Date": dateStr,
+          "Check In": fmt(r.checkIn),
+          "Check Out": fmt(r.checkOut),
           "Break Sessions": r.breaks?.length
-            ? r.breaks.map((b,i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
+            ? r.breaks.map((b, i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
             : "—",
           "Total Break": fmtMins(r.totalBreak),
           "Bio Break Sessions": r.bioBreaks?.length
-            ? r.bioBreaks.map((b,i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
+            ? r.bioBreaks.map((b, i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
             : "—",
           "Total Bio Break": fmtMins(r.totalBioBreak),
           "Total Worked": fmtMins(r.totalWorked),
           "Status": r.status.replace(/-/g, " "),
-          "Selfies": `${r.selfies?.length ?? 0}`,
+          "_dayType": dayType, // hidden, used for coloring only
         });
       });
     }
@@ -388,25 +388,75 @@ async function exportCalToExcel(
   records: TimeEntry[], employees: Employee[],
   label: string, from: string, to: string
 ) {
-  const XLSX = await import("xlsx");
+  const ExcelJS = (await import("exceljs")).default;
   const rows = buildCalExportRows(records, employees, from, to);
   if (!rows || rows.length === 0) return;
 
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws["!cols"] = [
-    {wch:12},{wch:5},{wch:18},           // Date, Day, Day Type
-    {wch:22},{wch:28},{wch:8},{wch:14},  // Employee, Email, Role, Campaign
-    {wch:18},                             // Shift
-    {wch:10},{wch:10},{wch:9},           // Check In/Out, On Time?
-    {wch:52},{wch:12},                   // Break Sessions, Total Break
-    {wch:52},{wch:16},                   // Bio Break Sessions, Total Bio Break
-    {wch:13},{wch:14},{wch:8},           // Total Worked, Status, Selfies
-  ];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Attendance");
-  XLSX.writeFile(wb, `attendance-${label.replace(/[^a-zA-Z0-9]/g,"-")}-${new Date().toISOString().slice(0,10)}.xlsx`);
-}
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Attendance");
 
+  // Exclude the hidden _dayType from visible headers
+  const allKeys = Object.keys(rows[0]);
+  const headers = allKeys.filter(h => h !== "_dayType");
+  const colWidths = [22, 28, 12, 10, 10, 52, 12, 52, 16, 13, 14];
+
+  // Header row
+  ws.columns = headers.map((h, i) => ({ header: h, width: colWidths[i] ?? 14 }));
+  const headerRow = ws.getRow(1);
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, size: 9, color: { argb: "FF787670" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F1EE" } };
+    cell.alignment = { vertical: "middle", horizontal: "left" };
+    cell.border = { bottom: { style: "thin", color: { argb: "FFE4E2DD" } } };
+  });
+  headerRow.height = 20;
+
+  // Data rows
+  rows.forEach(row => {
+    const values = headers.map(h => row[h] ?? "");
+    const exRow = ws.addRow(values);
+    const dayType = (row["_dayType"] ?? "").toLowerCase();
+
+    let bgColor: string | null = null;
+    let fontColor: string | null = null;
+
+    if (dayType.includes("absent")) {
+      bgColor = "FFFEE2E2";
+      fontColor = "FFB91C1C";
+    } else if (dayType === "rest day" || dayType === "weekend") {
+      bgColor = "FFFFF9C4";
+      fontColor = "FF92400E";
+    } else if (dayType.includes("late")) {
+      bgColor = "FFFEF3C7";
+      fontColor = "FF92400E";
+    }
+
+    exRow.eachCell((cell, colNum) => {
+      cell.font = { size: 9, color: { argb: fontColor ?? "FF1E1C1A" } };
+      if (bgColor) {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bgColor } };
+      }
+      cell.border = { bottom: { style: "hair", color: { argb: "FFE4E2DD" } } };
+      cell.alignment = { vertical: "middle" };
+      if (colNum === 1) cell.font = { ...cell.font, bold: true };
+      // Green bold for Total Worked (col 10)
+      if (colNum === 10 && !bgColor) cell.font = { size: 9, bold: true, color: { argb: "FF16A34A" } };
+    });
+
+    exRow.height = 16;
+  });
+
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `attendance-${label.replace(/[^a-zA-Z0-9]/g,"-")}-${new Date().toISOString().slice(0,10)}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 // FIX 1: Added from and to parameters to exportCalToPDF
 async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label: string, from: string, to: string) {
   const { default: jsPDF } = await import("jspdf");

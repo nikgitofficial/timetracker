@@ -1,30 +1,33 @@
 // app/api/employee-auth/login/route.ts
-// Employee login: username = their name, password = their email
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Employee from "@/models/Employee";
+import bcrypt from "bcryptjs";
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
-    const { name, email } = await req.json();
+    const { name, password } = await req.json();
 
-    if (!name?.trim() || !email?.trim()) {
-      return NextResponse.json({ error: "Name and email are required" }, { status: 400 });
+    if (!name?.trim()) {
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
     const normalizedName = name.trim();
 
-    // Match by name (case-insensitive) AND email
+    // Look up by name only
     const employee = await Employee.findOne({
-      email: normalizedEmail,
-      employeeName: { $regex: new RegExp(`^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
-    }).select("employeeName email role campaign status profilePic shift birthdate notes _id");
+      employeeName: {
+        $regex: new RegExp(
+          `^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+          "i"
+        ),
+      },
+    }).select("employeeName email role campaign status profilePic shift birthdate notes passwordHash _id");
 
     if (!employee) {
       return NextResponse.json(
-        { error: "No employee found with that name and email. Please contact your manager." },
+        { error: "No employee found with that name. Please contact your manager." },
         { status: 401 }
       );
     }
@@ -36,19 +39,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ── Auth check ──────────────────────────────────────────────────────────
+    if (employee.passwordHash) {
+      // Has a custom password — must provide it
+      if (!password?.trim()) {
+        return NextResponse.json(
+          { error: "This account has a password. Please enter your password.", needsPassword: true },
+          { status: 401 }
+        );
+      }
+      const valid = await bcrypt.compare(password, employee.passwordHash);
+      if (!valid) {
+        return NextResponse.json(
+          { error: "Incorrect password.", needsPassword: true },
+          { status: 401 }
+        );
+      }
+    } else {
+      // No password set yet — name match alone is enough (legacy)
+      // Encourage them to set a password for privacy
+    }
+
     return NextResponse.json({
       message: "Login successful",
+      hasPassword: !!employee.passwordHash,
       employee: {
-        _id: employee._id.toString(),
+        _id:          employee._id.toString(),
         employeeName: employee.employeeName,
-        email: employee.email,
-        role: employee.role,
-        campaign: employee.campaign,
-        status: employee.status,
-        profilePic: employee.profilePic,
-        shift: employee.shift,
-        birthdate: employee.birthdate,
-        notes: employee.notes,
+        email:        employee.email,
+        role:         employee.role,
+        campaign:     employee.campaign,
+        status:       employee.status,
+        profilePic:   employee.profilePic,
+        shift:        employee.shift,
+        birthdate:    employee.birthdate,
+        notes:        employee.notes,
       },
     });
   } catch (err) {

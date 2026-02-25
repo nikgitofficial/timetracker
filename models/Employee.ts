@@ -4,15 +4,15 @@ import { Schema, models, model } from "mongoose";
 const ShiftSchema = new Schema(
   {
     label:         { type: String, default: "Regular" },
-    startTime:     { type: String, default: "09:00" },   // "HH:MM" 24h
-    endTime:       { type: String, default: "18:00" },   // "HH:MM" 24h
+    startTime:     { type: String, default: "09:00" },
+    endTime:       { type: String, default: "18:00" },
     graceMinutes:  { type: Number, default: 15 },
     restDays: {
       type: [String],
       default: ["Saturday", "Sunday"],
       enum: ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
     },
-    effectiveFrom: { type: String, default: "" },        // "YYYY-MM-DD"
+    effectiveFrom: { type: String, default: "" },
   },
   { _id: false }
 );
@@ -36,15 +36,15 @@ const EmployeeSchema = new Schema(
     birthdate:  { type: String, default: "" },
     profilePic: { type: String, default: "" },
     notes:      { type: String, default: "" },
-    // ✅ "shift" — matches shift/route.ts, Employees.tsx, and AttendanceCalendar
-    shift: { type: ShiftSchema, default: undefined },
+    shift:      { type: ShiftSchema, default: undefined },
+    // ✅ Custom password hash — null means not yet registered (falls back to email auth)
+    passwordHash: { type: String, default: null },
   },
   { timestamps: true }
 );
 
 EmployeeSchema.index({ ownerEmail: 1, email: 1, employeeName: 1 }, { unique: true });
 
-// ✅ Clear cached model so schema changes always take effect
 if (models.Employee) delete (models as Record<string, unknown>).Employee;
 
 export default model("Employee", EmployeeSchema);
