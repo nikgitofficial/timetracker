@@ -97,6 +97,9 @@ export default function TimeClockPage() {
   const [lookupDone, setLookupDone] = useState(false);
   const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── FIX: selection lock prevents double-tap/double-click on name picker ──
+  const selectionLockRef = useRef(false);
+
   // ── DATE PICKER ──
   const today = toLocalDateString(new Date());
   const [selectedDate, setSelectedDate] = useState<string>(today);
@@ -244,19 +247,29 @@ export default function TimeClockPage() {
     } finally { setLookingUp(false); }
   }, []);
 
+  // ── FIX: selection lock prevents redundant double-tap/click on name picker ──
   const handleSelectProfile = (profile: EmployeeProfile) => {
-    // Clear choices immediately so the picker disappears on the first click
-    // and cannot intercept a phantom second tap/click
+    // If already processing a selection, ignore this call entirely
+    if (selectionLockRef.current) return;
+    selectionLockRef.current = true;
+
+    // Immediately wipe choices so the picker disappears and cannot be re-clicked
     setEmployeeChoices([]);
     setLookupDone(true);
     setEmployeeProfile(profile);
     setName(profile.employeeName);
+
     // Use the email ref (always current) instead of the potentially-stale closure value
     fetchStatus(emailRef.current, profile.employeeName);
+
+    // Release the lock after a safe delay (longer than any double-tap window)
+    setTimeout(() => { selectionLockRef.current = false; }, 800);
   };
 
   const handleEmailChange = (val: string) => {
     setEmail(val); setEmailError(""); setEmployeeProfile(null); setEmployeeChoices([]); setLookupDone(false);
+    // Reset selection lock whenever the email changes so a fresh lookup works cleanly
+    selectionLockRef.current = false;
     if (lookupTimer.current) clearTimeout(lookupTimer.current);
     lookupTimer.current = setTimeout(() => lookupEmployee(val), 750);
   };
@@ -588,7 +601,7 @@ export default function TimeClockPage() {
                   {employeeProfile.campaign && <span className="epc-badge" style={{ color: "#7eb8ff", background: "rgba(126,184,255,0.1)", borderColor: "#7eb8ff" }}>{employeeProfile.campaign}</span>}
                   <span className={`epc-badge epc-status-${employeeProfile.status}`}>{employeeProfile.status.replace("-", " ")}</span>
                 </div>
-                <button onClick={() => { setEmployeeProfile(null); lookupEmployee(email); }} style={{ marginTop: 8, fontSize: 10, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "'Share Tech Mono',monospace", letterSpacing: 1 }}>↩ Not you? Switch name</button>
+                <button onClick={() => { setEmployeeProfile(null); selectionLockRef.current = false; lookupEmployee(email); }} style={{ marginTop: 8, fontSize: 10, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "'Share Tech Mono',monospace", letterSpacing: 1 }}>↩ Not you? Switch name</button>
               </div>
             </div>
           )}
@@ -600,7 +613,14 @@ export default function TimeClockPage() {
               <div className="name-picker-subtitle">Multiple accounts found for this email. Please select your name:</div>
               <div className="name-picker-list">
                 {employeeChoices.map((ep, i) => (
-                  <button key={i} type="button" className="name-picker-option" onClick={(e) => { e.stopPropagation(); handleSelectProfile(ep); }}>
+                  <button
+                    key={i}
+                    type="button"
+                    className="name-picker-option"
+                    // Use onPointerDown instead of onClick so the selection fires on the
+                    // first physical touch/click and the lock prevents any repeat fires
+                    onPointerDown={(e) => { e.preventDefault(); handleSelectProfile(ep); }}
+                  >
                     <img src={ep.profilePic || `https://ui-avatars.com/api/?name=${encodeURIComponent(ep.employeeName)}&background=1a2744&color=00ff88&size=48`} alt={ep.employeeName} className="name-picker-avatar" />
                     <div className="name-picker-info">
                       <div className="name-picker-name">{ep.employeeName}</div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import "./employee-portal.css"
 
@@ -201,6 +201,241 @@ function DateFilterCard({
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   PROFILE EDITOR COMPONENT
+══════════════════════════════════════════════════════════════════ */
+function ProfileEditor({ employee, onUpdate }: {
+  employee: Employee;
+  onUpdate: (updated: Employee) => void;
+}) {
+  const [editing, setEditing]               = useState(false);
+  const [birthdate, setBirthdate]           = useState(employee.birthdate || "");
+  const [notes, setNotes]                   = useState(employee.notes || "");
+  const [saving, setSaving]                 = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [error, setError]                   = useState<string | null>(null);
+  const [success, setSuccess]               = useState<string | null>(null);
+  const fileInputRef                        = useRef<HTMLInputElement>(null);
+
+  // Keep local state in sync if employee prop changes
+  useEffect(() => {
+    setBirthdate(employee.birthdate || "");
+    setNotes(employee.notes || "");
+  }, [employee]);
+
+  const sessionHeader = JSON.stringify({ email: employee.email, employeeName: employee.employeeName });
+
+  const handleSave = async () => {
+    setSaving(true); setError(null); setSuccess(null);
+    try {
+      const res = await fetch("/api/employees/self", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-employee-session": sessionHeader },
+        body: JSON.stringify({ birthdate, notes }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Failed to save"); return; }
+      onUpdate({ ...employee, birthdate, notes });
+      setSuccess("Profile updated!"); setEditing(false);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch { setError("Network error"); }
+    finally { setSaving(false); }
+  };
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setError("Please select an image file"); return; }
+    if (file.size > 5 * 1024 * 1024) { setError("Image must be under 5MB"); return; }
+
+    setPhotoUploading(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/employees/self", {
+        method: "POST",
+        headers: { "x-employee-session": sessionHeader },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Upload failed"); return; }
+      onUpdate({ ...employee, profilePic: data.profilePic });
+      setSuccess("Photo updated!"); setTimeout(() => setSuccess(null), 3000);
+    } catch { setError("Upload failed"); }
+    finally { setPhotoUploading(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
+  };
+
+  return (
+    <div className="profile-card">
+      {/* Hero */}
+      <div className="profile-hero">
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <img src={avatarUrl(employee.employeeName, employee.profilePic)} alt="Avatar" className="profile-avatar" />
+          <button
+            title="Change photo"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={photoUploading}
+            style={{
+              position: "absolute", bottom: 0, right: 0,
+              width: 24, height: 24, borderRadius: "50%",
+              background: photoUploading ? "#6b7280" : "#22c55e",
+              border: "2px solid #1a1916",
+              color: "#fff", fontSize: 12, display: "flex",
+              alignItems: "center", justifyContent: "center",
+              cursor: photoUploading ? "not-allowed" : "pointer",
+              transition: "background 0.15s",
+            }}
+          >
+            {photoUploading
+              ? <span className="export-spinner" style={{ borderColor: "#fff", borderTopColor: "transparent" }} />
+              : "📷"}
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handlePhotoChange} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div className="profile-name">{employee.employeeName}</div>
+          <div className="profile-email">{employee.email}</div>
+          <div className="profile-badges">
+            <span className="profile-badge" style={{ color: ROLE_COLOR[employee.role] || "#6b7280", borderColor: ROLE_COLOR[employee.role] || "#6b7280", background: "rgba(255,255,255,0.1)" }}>{employee.role}</span>
+            <span className="profile-badge" style={{ color: employee.status === "active" ? "#22c55e" : "#9ca3af", borderColor: employee.status === "active" ? "#22c55e" : "#9ca3af", background: "rgba(255,255,255,0.1)" }}>{employee.status}</span>
+            {employee.campaign && <span className="profile-badge" style={{ color: "#a5b4fc", borderColor: "#a5b4fc", background: "rgba(255,255,255,0.1)" }}>{employee.campaign}</span>}
+          </div>
+        </div>
+        <button
+          onClick={() => { setEditing(e => !e); setError(null); }}
+          style={{
+            alignSelf: "flex-start",
+            background: editing ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.08)",
+            border: "1.5px solid rgba(255,255,255,0.2)", color: "#fff",
+            padding: "6px 14px", borderRadius: 6,
+            fontFamily: "'DM Mono', monospace", fontSize: 10,
+            letterSpacing: 1, cursor: "pointer", transition: "all 0.15s",
+          }}
+        >
+          {editing ? "✕ Cancel" : "✏ Edit"}
+        </button>
+      </div>
+
+      {/* Feedback banner */}
+      {(error || success) && (
+        <div style={{
+          margin: "12px 20px 0", padding: "8px 14px", borderRadius: 6,
+          background: error ? "#fee2e2" : "#dcfce7",
+          border: `1.5px solid ${error ? "#fca5a5" : "#86efac"}`,
+          color: error ? "#b91c1c" : "#15803d",
+          fontFamily: "'DM Mono', monospace", fontSize: 11,
+        }}>
+          {error || success}
+        </div>
+      )}
+
+      <div className="profile-body">
+        {/* Read-only owner-controlled fields */}
+        <div className="profile-row">
+          <span className="profile-lbl">Email</span>
+          <span className="profile-val" style={{ fontSize: 12 }}>{employee.email}</span>
+        </div>
+        <div className="profile-row">
+          <span className="profile-lbl">Role</span>
+          <span className="profile-val" style={{ color: ROLE_COLOR[employee.role] || "var(--text)" }}>{employee.role}</span>
+        </div>
+        {employee.campaign && (
+          <div className="profile-row">
+            <span className="profile-lbl">Campaign</span>
+            <span className="profile-val">{employee.campaign}</span>
+          </div>
+        )}
+
+        {/* Editable: Birthday */}
+        <div className="profile-row" style={{ alignItems: editing ? "center" : "flex-start" }}>
+          <span className="profile-lbl">Birthday</span>
+          {editing ? (
+            <input
+              type="date"
+              className="filter-date-input"
+              value={birthdate}
+              max={toLocalStr(new Date())}
+              onChange={e => setBirthdate(e.target.value)}
+              style={{ fontSize: 12 }}
+            />
+          ) : (
+            <span className="profile-val">
+              {employee.birthdate || <span style={{ color: "var(--text-light)" }}>—</span>}
+            </span>
+          )}
+        </div>
+
+        {/* Editable: Notes / Bio */}
+        <div className="profile-row" style={{ flexDirection: "column", gap: editing ? 8 : 6 }}>
+          <span className="profile-lbl">Notes / Bio</span>
+          {editing ? (
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={3}
+              maxLength={500}
+              placeholder="Add a short bio or notes about yourself…"
+              style={{
+                width: "100%", background: "var(--surface-alt)",
+                border: "1.5px solid var(--border)", borderRadius: 6,
+                padding: "8px 12px", fontFamily: "'DM Mono', monospace",
+                fontSize: 12, color: "var(--text)", resize: "vertical",
+                outline: "none", transition: "border-color 0.15s",
+              }}
+              onFocus={e => (e.target.style.borderColor = "var(--border-strong)")}
+              onBlur={e => (e.target.style.borderColor = "var(--border)")}
+            />
+          ) : (
+            <span className="profile-val" style={{
+              fontSize: 12, textAlign: "left",
+              fontStyle: employee.notes ? "italic" : "normal",
+              color: employee.notes ? "var(--text-muted)" : "var(--text-light)",
+            }}>
+              {employee.notes || "—"}
+            </span>
+          )}
+        </div>
+
+        {/* Save button */}
+        {editing && (
+          <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                background: saving ? "#6b7280" : "#1a1916",
+                border: "none", color: "#fff", padding: "9px 24px",
+                borderRadius: 6, fontFamily: "'DM Mono', monospace",
+                fontSize: 11, letterSpacing: 1,
+                cursor: saving ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", gap: 6,
+                transition: "background 0.15s",
+              }}
+            >
+              {saving && <span className="export-spinner" style={{ borderColor: "#fff", borderTopColor: "transparent" }} />}
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+          </div>
+        )}
+
+        {/* Shift info (read-only) */}
+        {employee.shift?.startTime && (
+          <div className="profile-row" style={{ flexDirection: "column", gap: 10 }}>
+            <span className="profile-lbl">My Schedule</span>
+            <div className="shift-card">
+              <div className="shift-title">⏰ {employee.shift.label || "Regular Shift"}</div>
+              <div className="shift-row"><span className="shift-lbl">Start Time</span><span>{fmtTime12(employee.shift.startTime)}</span></div>
+              <div className="shift-row"><span className="shift-lbl">End Time</span><span>{fmtTime12(employee.shift.endTime)}</span></div>
+              <div className="shift-row"><span className="shift-lbl">Grace Period</span><span>+{employee.shift.graceMinutes} minutes</span></div>
+              <div className="shift-row"><span className="shift-lbl">Rest Days</span><span>{employee.shift.restDays.map(d => d.slice(0, 3)).join(", ")}</span></div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════ */
 export default function EmployeePortal() {
@@ -299,7 +534,7 @@ export default function EmployeePortal() {
     }
   };
 
-  /* ── Calendar quick range (also updates calDate to keep nav in sync) ── */
+  /* ── Calendar quick range ── */
   const applyCalQuickRange = (key: string) => {
     applyQuickRange(key);
     setUseCalCustomRange(true);
@@ -318,16 +553,16 @@ export default function EmployeePortal() {
     );
   }
 
-  /* ── Filtered records for Home/Profile tabs ── */
+  /* ── Filtered records ── */
   const filteredRecords = records.filter(r => r.date >= filterFrom && r.date <= filterTo);
 
-  /* ── Stats from filtered records ── */
-  const today         = toLocalStr(new Date());
-  const todayRecord   = records.find(r => r.date === today);
-  const totalDays     = filteredRecords.length;
-  const lateDays      = filteredRecords.filter(r => isLate(r.checkIn, employee.shift)).length;
+  /* ── Stats ── */
+  const today           = toLocalStr(new Date());
+  const todayRecord     = records.find(r => r.date === today);
+  const totalDays       = filteredRecords.length;
+  const lateDays        = filteredRecords.filter(r => isLate(r.checkIn, employee.shift)).length;
   const totalWorkedMins = filteredRecords.reduce((s, r) => s + (r.totalWorked || 0), 0);
-  const avgWorked     = totalDays > 0
+  const avgWorked       = totalDays > 0
     ? Math.round(filteredRecords.filter(r => r.totalWorked > 0).reduce((s, r) => s + r.totalWorked, 0) / Math.max(1, filteredRecords.filter(r => r.totalWorked > 0).length))
     : 0;
 
@@ -337,7 +572,7 @@ export default function EmployeePortal() {
   const safePage = Math.min(currentPage, totalPages);
   const pagedRecords = sortedRecords.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  /* ── Calendar grid (standard monthly) ── */
+  /* ── Calendar grid ── */
   const y = calDate.getFullYear(); const mo = calDate.getMonth();
   const firstDay = new Date(y, mo, 1).getDay();
   const daysInMonth = new Date(y, mo + 1, 0).getDate();
@@ -366,51 +601,49 @@ export default function EmployeePortal() {
   };
 
   /* ── EXPORT HELPERS ── */
- const buildExportRows = () => {
-  const DOW_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  const todayStr = toLocalStr(new Date());
+  const buildExportRows = () => {
+    const DOW_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const tStr = toLocalStr(new Date());
+    const dateRange = buildDateRange(filterFrom, filterTo);
+    const recordMap = new Map(records.map(r => [r.date, r]));
 
-  const dateRange = buildDateRange(filterFrom, filterTo);
-  const recordMap = new Map(records.map(r => [r.date, r]));
+    return dateRange.map(dateStr => {
+      const r = recordMap.get(dateStr);
+      const dowIdx = new Date(dateStr + "T12:00:00").getDay();
+      const dow = DOW_SHORT[dowIdx];
+      const rest = isRestDay(dateStr, employee.shift);
+      const weekend = !employee.shift && (dowIdx === 0 || dowIdx === 6);
+      const late = r ? isLate(r.checkIn, employee.shift) : false;
 
-  return dateRange.map(dateStr => {
-    const r = recordMap.get(dateStr);
-    const dowIdx = new Date(dateStr + "T12:00:00").getDay();
-    const dow = DOW_SHORT[dowIdx];
-    const rest = isRestDay(dateStr, employee.shift);
-    const weekend = !employee.shift && (dowIdx === 0 || dowIdx === 6);
-    const late = r ? isLate(r.checkIn, employee.shift) : false;
+      let dayType: string;
+      if (rest) dayType = "Rest Day";
+      else if (weekend) dayType = "Weekend";
+      else if (r) dayType = late ? "Present (Late)" : "Present (On Time)";
+      else if (dateStr > tStr) dayType = "Future";
+      else if (dateStr === tStr) dayType = "Today";
+      else dayType = "Absent";
 
-    let dayType: string;
-
-    if (rest) dayType = "Rest Day";
-    else if (weekend) dayType = "Weekend";
-    else if (r) dayType = late ? "Present (Late)" : "Present (On Time)";
-    else if (dateStr > todayStr) dayType = "Future";
-    else if (dateStr === todayStr) dayType = "Today";
-    else dayType = "Absent";
-
-    return {
-      "Date": dateStr,
-      "Day": dow,
-      "Day Type": dayType,
-      "Check In": r ? fmt(r.checkIn) : "—",
-      "Check Out": r ? fmt(r.checkOut) : "—",
-      "On Time?": r ? (late ? "Late" : "On Time") : "—",
-      "Break Sessions": r?.breaks?.length
-        ? r.breaks.map((b, i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
-        : "—",
-      "Total Break": r ? fmtMins(r.totalBreak) : "—",
-      "Bio Break Sessions": r?.bioBreaks?.length
-        ? r.bioBreaks.map((b, i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
-        : "—",
-      "Total Bio Break": r ? fmtMins(r.totalBioBreak) : "—",
-      "Total Worked": r ? fmtMins(r.totalWorked) : "—",
-      "Status": r ? r.status.replace(/-/g, " ") : dayType,
-      "Selfies": r ? `${r.selfies?.length ?? 0}` : "0",
-    };
-  });
-};
+      return {
+        "Date": dateStr,
+        "Day": dow,
+        "Day Type": dayType,
+        "Check In": r ? fmt(r.checkIn) : "—",
+        "Check Out": r ? fmt(r.checkOut) : "—",
+        "On Time?": r ? (late ? "Late" : "On Time") : "—",
+        "Break Sessions": r?.breaks?.length
+          ? r.breaks.map((b, i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
+          : "—",
+        "Total Break": r ? fmtMins(r.totalBreak) : "—",
+        "Bio Break Sessions": r?.bioBreaks?.length
+          ? r.bioBreaks.map((b, i) => `#${i+1}: ${fmt(b.breakIn)} → ${b.breakOut ? fmt(b.breakOut) : "active"}${b.duration ? ` (${fmtMins(b.duration)})` : ""}`).join(" | ")
+          : "—",
+        "Total Bio Break": r ? fmtMins(r.totalBioBreak) : "—",
+        "Total Worked": r ? fmtMins(r.totalWorked) : "—",
+        "Status": r ? r.status.replace(/-/g, " ") : dayType,
+        "Selfies": r ? `${r.selfies?.length ?? 0}` : "0",
+      };
+    });
+  };
 
   const exportExcel = async () => {
     setExporting("excel");
@@ -419,28 +652,28 @@ export default function EmployeePortal() {
       const rows = buildExportRows();
       const ws = XLSX.utils.json_to_sheet(rows);
       ws["!cols"] = [
-  { wch: 12 }, { wch: 5 }, { wch: 18 },
-  { wch: 12 }, { wch: 12 }, { wch: 10 },
-  { wch: 50 }, { wch: 14 },
-  { wch: 50 }, { wch: 16 },
-  { wch: 14 }, { wch: 16 }, { wch: 8 },
-];
+        { wch: 12 }, { wch: 5 }, { wch: 18 },
+        { wch: 12 }, { wch: 12 }, { wch: 10 },
+        { wch: 50 }, { wch: 14 },
+        { wch: 50 }, { wch: 16 },
+        { wch: 14 }, { wch: 16 }, { wch: 8 },
+      ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Attendance");
 
       const sumRows = [
-        { "Metric": "Employee",         "Value": employee.employeeName },
-        { "Metric": "Email",            "Value": employee.email },
-        { "Metric": "Role",             "Value": employee.role },
-        { "Metric": "Campaign",         "Value": employee.campaign || "—" },
-        { "Metric": "Period",           "Value": filterLabel },
-        { "Metric": "Days Present",     "Value": totalDays },
-        { "Metric": "Late Days",        "Value": lateDays },
+        { "Metric": "Employee",          "Value": employee.employeeName },
+        { "Metric": "Email",             "Value": employee.email },
+        { "Metric": "Role",              "Value": employee.role },
+        { "Metric": "Campaign",          "Value": employee.campaign || "—" },
+        { "Metric": "Period",            "Value": filterLabel },
+        { "Metric": "Days Present",      "Value": totalDays },
+        { "Metric": "Late Days",         "Value": lateDays },
         { "Metric": "Total Hours Worked","Value": (totalWorkedMins / 60).toFixed(2) + "h" },
-        { "Metric": "Avg Day Length",   "Value": avgWorked > 0 ? fmtMins(avgWorked) : "—" },
-        { "Metric": "Shift",            "Value": employee.shift?.startTime ? `${fmtTime12(employee.shift.startTime)} – ${fmtTime12(employee.shift.endTime)}` : "—" },
-        { "Metric": "Grace Period",     "Value": employee.shift?.graceMinutes != null ? `+${employee.shift.graceMinutes}m` : "—" },
-        { "Metric": "Rest Days",        "Value": employee.shift?.restDays?.join(", ") || "—" },
+        { "Metric": "Avg Day Length",    "Value": avgWorked > 0 ? fmtMins(avgWorked) : "—" },
+        { "Metric": "Shift",             "Value": employee.shift?.startTime ? `${fmtTime12(employee.shift.startTime)} – ${fmtTime12(employee.shift.endTime)}` : "—" },
+        { "Metric": "Grace Period",      "Value": employee.shift?.graceMinutes != null ? `+${employee.shift.graceMinutes}m` : "—" },
+        { "Metric": "Rest Days",         "Value": employee.shift?.restDays?.join(", ") || "—" },
       ];
       const ws2 = XLSX.utils.json_to_sheet(sumRows);
       ws2["!cols"] = [{ wch: 22 }, { wch: 32 }];
@@ -453,7 +686,7 @@ export default function EmployeePortal() {
   const exportPDF = async () => {
     setExporting("pdf");
     try {
-      const { default: jsPDF }    = await import("jspdf");
+      const { default: jsPDF }     = await import("jspdf");
       const { default: autoTable } = await import("jspdf-autotable");
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
@@ -531,6 +764,7 @@ export default function EmployeePortal() {
   return (
     <>
       <div className="portal">
+
         {/* Topbar */}
         <header className="topbar">
           <div className="topbar-left">
@@ -561,7 +795,6 @@ export default function EmployeePortal() {
           {/* ── HOME TAB ── */}
           {tab === "home" && (
             <>
-              {/* DATE FILTER CARD */}
               <DateFilterCard
                 {...sharedFilterProps}
                 onQuickRange={applyQuickRange}
@@ -583,22 +816,10 @@ export default function EmployeePortal() {
 
               {/* Stats */}
               <div className="stats">
-                <div className="stat-card stat-blue">
-                  <div className="stat-lbl">Days Present</div>
-                  <div className="stat-val">{totalDays}</div>
-                </div>
-                <div className="stat-card stat-green">
-                  <div className="stat-lbl">Avg Day</div>
-                  <div className="stat-val">{avgWorked > 0 ? fmtMins(avgWorked) : "—"}</div>
-                </div>
-                <div className="stat-card stat-amber">
-                  <div className="stat-lbl">Late Days</div>
-                  <div className="stat-val">{lateDays}</div>
-                </div>
-                <div className="stat-card stat-rose">
-                  <div className="stat-lbl">Total Hours</div>
-                  <div className="stat-val">{(totalWorkedMins / 60).toFixed(1)}h</div>
-                </div>
+                <div className="stat-card stat-blue"><div className="stat-lbl">Days Present</div><div className="stat-val">{totalDays}</div></div>
+                <div className="stat-card stat-green"><div className="stat-lbl">Avg Day</div><div className="stat-val">{avgWorked > 0 ? fmtMins(avgWorked) : "—"}</div></div>
+                <div className="stat-card stat-amber"><div className="stat-lbl">Late Days</div><div className="stat-val">{lateDays}</div></div>
+                <div className="stat-card stat-rose"><div className="stat-lbl">Total Hours</div><div className="stat-val">{(totalWorkedMins / 60).toFixed(1)}h</div></div>
               </div>
 
               {/* Today snapshot */}
@@ -652,13 +873,8 @@ export default function EmployeePortal() {
                       <table>
                         <thead>
                           <tr>
-                            <th>Date</th>
-                            <th>Check In</th>
-                            <th>Check Out</th>
-                            <th>Break</th>
-                            <th>Worked</th>
-                            <th>Status</th>
-                            <th>Selfies</th>
+                            <th>Date</th><th>Check In</th><th>Check Out</th>
+                            <th>Break</th><th>Worked</th><th>Status</th><th>Selfies</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -732,7 +948,6 @@ export default function EmployeePortal() {
           {/* ── CALENDAR TAB ── */}
           {tab === "calendar" && (
             <>
-              {/* DATE FILTER CARD for Calendar */}
               <DateFilterCard
                 {...sharedFilterProps}
                 onQuickRange={applyCalQuickRange}
@@ -757,7 +972,6 @@ export default function EmployeePortal() {
               />
 
               <div className="cal-card">
-                {/* Calendar nav — shown in monthly mode; in custom range mode show a header */}
                 {!useCalCustomRange ? (
                   <div className="cal-nav">
                     <button className="cal-nav-btn" onClick={() => { const d = new Date(calDate); d.setMonth(d.getMonth() - 1); setCalDate(d); }}>‹</button>
@@ -769,11 +983,7 @@ export default function EmployeePortal() {
                   <div className="cal-nav">
                     <span className="cal-title" style={{ fontSize: 14 }}>
                       Custom Range
-                      <span style={{
-                        marginLeft: 10, fontFamily: "'DM Mono', monospace", fontSize: 10,
-                        background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe",
-                        borderRadius: 20, padding: "2px 10px", fontWeight: 600,
-                      }}>
+                      <span style={{ marginLeft: 10, fontFamily: "'DM Mono', monospace", fontSize: 10, background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: 20, padding: "2px 10px", fontWeight: 600 }}>
                         {filterLabel} · {customRangeDays.length} days
                       </span>
                     </span>
@@ -791,9 +1001,7 @@ export default function EmployeePortal() {
                 {/* Monthly grid */}
                 {!useCalCustomRange && (
                   <>
-                    <div className="cal-day-headers">
-                      {DAYS.map(d => <div key={d} className="cal-dh">{d}</div>)}
-                    </div>
+                    <div className="cal-day-headers">{DAYS.map(d => <div key={d} className="cal-dh">{d}</div>)}</div>
                     <div className="cal-grid">
                       {calDays.map((dateStr, idx) => {
                         if (!dateStr) return <div key={`empty-${idx}`} className="cal-cell cal-cell--empty" />;
@@ -803,14 +1011,12 @@ export default function EmployeePortal() {
                         const rest    = isRestDay(dateStr, employee.shift);
                         const late    = rec ? isLate(rec.checkIn, employee.shift) : false;
                         const dayNum  = parseInt(dateStr.split("-")[2]);
-
                         let cellClass = "cal-cell";
                         if (isToday) cellClass += " cal-cell--today";
                         else if (rest) cellClass += " cal-cell--rest";
                         else if (rec && late) cellClass += " cal-cell--late";
                         else if (rec) cellClass += " cal-cell--present";
                         else if (isPast && !rest) cellClass += " cal-cell--absent";
-
                         return (
                           <div key={dateStr} className={cellClass} onClick={() => rec && setSelectedDay(rec)}>
                             <div className="cal-num">{dayNum}</div>
@@ -823,11 +1029,9 @@ export default function EmployeePortal() {
                             {rec && rec.selfies && rec.selfies.length > 0 && (
                               <div className="cal-selfie-strip">
                                 {rec.selfies.slice(0, 4).map((s, i) => (
-                                  <img key={s._id || i} src={s.url} alt={s.action}
-                                    className="cal-selfie-avatar"
+                                  <img key={s._id || i} src={s.url} alt={s.action} className="cal-selfie-avatar"
                                     title={s.action.replace(/-/g, " ")}
-                                    onClick={e => { e.stopPropagation(); setLightbox({ selfies: rec.selfies!, index: i }); }}
-                                  />
+                                    onClick={e => { e.stopPropagation(); setLightbox({ selfies: rec.selfies!, index: i }); }} />
                                 ))}
                               </div>
                             )}
@@ -841,33 +1045,26 @@ export default function EmployeePortal() {
                 {/* Custom range grid */}
                 {useCalCustomRange && (
                   <>
-                    <div className="cal-day-headers">
-                      {DAYS.map(d => <div key={d} className="cal-dh">{d}</div>)}
-                    </div>
+                    <div className="cal-day-headers">{DAYS.map(d => <div key={d} className="cal-dh">{d}</div>)}</div>
                     <div className="cal-grid">
-                      {/* Leading empty cells to align first day to correct weekday */}
                       {customRangeDays.length > 0 && (() => {
                         const firstDow = new Date(customRangeDays[0] + "T12:00:00").getDay();
-                        return Array.from({ length: firstDow }).map((_, i) => (
-                          <div key={`pre-${i}`} className="cal-cell cal-cell--empty" />
-                        ));
+                        return Array.from({ length: firstDow }).map((_, i) => <div key={`pre-${i}`} className="cal-cell cal-cell--empty" />);
                       })()}
                       {customRangeDays.map(dateStr => {
-                        const rec     = byDate.get(dateStr);
-                        const isToday = dateStr === today;
-                        const isPast  = dateStr <= today;
-                        const rest    = isRestDay(dateStr, employee.shift);
-                        const late    = rec ? isLate(rec.checkIn, employee.shift) : false;
-                        const dayNum  = parseInt(dateStr.split("-")[2]);
+                        const rec       = byDate.get(dateStr);
+                        const isToday   = dateStr === today;
+                        const isPast    = dateStr <= today;
+                        const rest      = isRestDay(dateStr, employee.shift);
+                        const late      = rec ? isLate(rec.checkIn, employee.shift) : false;
+                        const dayNum    = parseInt(dateStr.split("-")[2]);
                         const monthAbbr = new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { month: "short" });
-
                         let cellClass = "cal-cell";
                         if (isToday) cellClass += " cal-cell--today";
                         else if (rest) cellClass += " cal-cell--rest";
                         else if (rec && late) cellClass += " cal-cell--late";
                         else if (rec) cellClass += " cal-cell--present";
                         else if (isPast && !rest) cellClass += " cal-cell--absent";
-
                         return (
                           <div key={dateStr} className={cellClass} onClick={() => rec && setSelectedDay(rec)}>
                             <div className="cal-num">
@@ -884,11 +1081,9 @@ export default function EmployeePortal() {
                             {rec && rec.selfies && rec.selfies.length > 0 && (
                               <div className="cal-selfie-strip">
                                 {rec.selfies.slice(0, 4).map((s, i) => (
-                                  <img key={s._id || i} src={s.url} alt={s.action}
-                                    className="cal-selfie-avatar"
+                                  <img key={s._id || i} src={s.url} alt={s.action} className="cal-selfie-avatar"
                                     title={s.action.replace(/-/g, " ")}
-                                    onClick={e => { e.stopPropagation(); setLightbox({ selfies: rec.selfies!, index: i }); }}
-                                  />
+                                    onClick={e => { e.stopPropagation(); setLightbox({ selfies: rec.selfies!, index: i }); }} />
                                 ))}
                               </div>
                             )}
@@ -905,69 +1100,17 @@ export default function EmployeePortal() {
           {/* ── PROFILE TAB ── */}
           {tab === "profile" && (
             <>
-              {/* DATE FILTER CARD for Profile */}
-              <DateFilterCard
-                {...sharedFilterProps}
-                onQuickRange={applyQuickRange}
+              <DateFilterCard {...sharedFilterProps} onQuickRange={applyQuickRange} />
+              <ProfileEditor
+                employee={employee}
+                onUpdate={updated => {
+                  setEmployee(updated);
+                  sessionStorage.setItem("employeeSession", JSON.stringify(updated));
+                }}
               />
-
-              <div className="profile-card">
-                <div className="profile-hero">
-                  <img src={avatarUrl(employee.employeeName, employee.profilePic)} alt="Avatar" className="profile-avatar" />
-                  <div>
-                    <div className="profile-name">{employee.employeeName}</div>
-                    <div className="profile-email">{employee.email}</div>
-                    <div className="profile-badges">
-                      <span className="profile-badge" style={{ color: ROLE_COLOR[employee.role] || "#6b7280", borderColor: ROLE_COLOR[employee.role] || "#6b7280", background: "rgba(255,255,255,0.1)" }}>{employee.role}</span>
-                      <span className="profile-badge" style={{ color: employee.status === "active" ? "#22c55e" : "#9ca3af", borderColor: employee.status === "active" ? "#22c55e" : "#9ca3af", background: "rgba(255,255,255,0.1)" }}>{employee.status}</span>
-                      {employee.campaign && <span className="profile-badge" style={{ color: "#a5b4fc", borderColor: "#a5b4fc", background: "rgba(255,255,255,0.1)" }}>{employee.campaign}</span>}
-                    </div>
-                  </div>
-                </div>
-                <div className="profile-body">
-                  <div className="profile-row"><span className="profile-lbl">Email</span><span className="profile-val" style={{ fontSize: 12 }}>{employee.email}</span></div>
-                  <div className="profile-row"><span className="profile-lbl">Role</span><span className="profile-val" style={{ color: ROLE_COLOR[employee.role] || "var(--text)" }}>{employee.role}</span></div>
-                  {employee.campaign && <div className="profile-row"><span className="profile-lbl">Campaign</span><span className="profile-val">{employee.campaign}</span></div>}
-                  {employee.birthdate && <div className="profile-row"><span className="profile-lbl">Birthday</span><span className="profile-val">{employee.birthdate}</span></div>}
-
-                  {/* Stats section header */}
-                  <div className="profile-row" style={{ borderBottom: "none", paddingBottom: 4 }}>
-                    <span className="profile-lbl" style={{ fontSize: 9, letterSpacing: 1.5 }}>📊 Stats · {filterLabel}</span>
-                  </div>
-
-                  <div className="profile-row"><span className="profile-lbl">Days Present</span><span className="profile-val">{totalDays}</span></div>
-                  <div className="profile-row"><span className="profile-lbl">Total Hours</span><span className="profile-val">{(totalWorkedMins / 60).toFixed(1)}h</span></div>
-                  <div className="profile-row">
-                    <span className="profile-lbl">Late Days</span>
-                    <span className="profile-val" style={{ color: lateDays > 0 ? "#d97706" : "var(--text)" }}>{lateDays}</span>
-                  </div>
-                  <div className="profile-row">
-                    <span className="profile-lbl">Avg Day Length</span>
-                    <span className="profile-val">{avgWorked > 0 ? fmtMins(avgWorked) : "—"}</span>
-                  </div>
-
-                  {employee.shift?.startTime && (
-                    <div className="profile-row" style={{ flexDirection: "column", gap: 10 }}>
-                      <span className="profile-lbl">My Schedule</span>
-                      <div className="shift-card">
-                        <div className="shift-title">⏰ {employee.shift.label || "Regular Shift"}</div>
-                        <div className="shift-row"><span className="shift-lbl">Start Time</span><span>{fmtTime12(employee.shift.startTime)}</span></div>
-                        <div className="shift-row"><span className="shift-lbl">End Time</span><span>{fmtTime12(employee.shift.endTime)}</span></div>
-                        <div className="shift-row"><span className="shift-lbl">Grace Period</span><span>+{employee.shift.graceMinutes} minutes</span></div>
-                        <div className="shift-row"><span className="shift-lbl">Rest Days</span><span>{employee.shift.restDays.map(d => d.slice(0, 3)).join(", ")}</span></div>
-                      </div>
-                    </div>
-                  )}
-                  {employee.notes && (
-                    <div className="profile-row" style={{ flexDirection: "column", gap: 6 }}>
-                      <span className="profile-lbl">Notes</span>
-                      <span className="profile-val" style={{ fontSize: 12, textAlign: "left", fontStyle: "italic", color: "var(--text-muted)" }}>{employee.notes}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
             </>
           )}
+
         </main>
 
         {/* Mobile footer nav */}
@@ -993,7 +1136,15 @@ export default function EmployeePortal() {
               <button className="modal-close" onClick={() => setSelectedDay(null)}>✕</button>
             </div>
             <div className="modal-body">
-              <div className="modal-row"><span className="modal-row-lbl">Check In</span><span className="modal-row-val" style={isLate(selectedDay.checkIn, employee.shift) ? { color: "#d97706" } : {}}>{fmt(selectedDay.checkIn)}{isLate(selectedDay.checkIn, employee.shift) && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, background: "#fef3c7", color: "#92400e", padding: "1px 5px", borderRadius: 3, marginLeft: 6 }}>Late</span>}</span></div>
+              <div className="modal-row">
+                <span className="modal-row-lbl">Check In</span>
+                <span className="modal-row-val" style={isLate(selectedDay.checkIn, employee.shift) ? { color: "#d97706" } : {}}>
+                  {fmt(selectedDay.checkIn)}
+                  {isLate(selectedDay.checkIn, employee.shift) && (
+                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, background: "#fef3c7", color: "#92400e", padding: "1px 5px", borderRadius: 3, marginLeft: 6 }}>Late</span>
+                  )}
+                </span>
+              </div>
               <div className="modal-row"><span className="modal-row-lbl">Check Out</span><span className="modal-row-val">{fmt(selectedDay.checkOut)}</span></div>
               <div className="modal-divider" />
               <div className="modal-row"><span className="modal-row-lbl">Break Time</span><span className="modal-row-val" style={{ color: "#d97706" }}>{fmtMins(selectedDay.totalBreak)}</span></div>
