@@ -453,6 +453,7 @@ useEffect(() => {
             <p className="dh-subtitle">Employee Attendance Overview</p>
           </div>
           <div className="dh-header-actions">
+            <a href="/dashboard/live" className="btn-live-monitor">⚡ Live Monitor</a>
             <button
               className="btn-export btn-export-excel"
               onClick={handleExportExcel}

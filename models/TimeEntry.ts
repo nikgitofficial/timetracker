@@ -10,7 +10,6 @@ const BreakSessionSchema = new Schema(
   { _id: true }
 );
 
-// NEW: tracks selfie per action
 const SelfieSchema = new Schema(
   {
     action: { type: String, required: true }, // "check-in", "break-in", etc.
@@ -43,8 +42,11 @@ const TimeEntrySchema = new Schema(
       default: "checked-in",
     },
 
-    // 📸 NEW: selfies per action
+    // 📸 Selfies per action
     selfies: { type: [SelfieSchema], default: [] },
+
+    // 📹 Daily.co video room for live camera monitoring
+    dailyRoomName: { type: String, default: null },
   },
   { timestamps: true }
 );
