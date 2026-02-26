@@ -266,13 +266,13 @@ export default function AttendanceCalendar() {
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
 
-  /* ── DATE FILTER STATE (new) ── */
+  /* ── DATE FILTER STATE ── */
   const todayStr = toLocalStr(new Date());
   const [filterFrom, setFilterFrom] = useState(monthStart(new Date()));
   const [filterTo,   setFilterTo]   = useState(monthEnd(new Date()));
   const [useCustomRange, setUseCustomRange] = useState(false);
 
-  /* ── QUICK RANGE HELPER (new) ── */
+  /* ── QUICK RANGE HELPER ── */
   const applyQuickRange = (key: string) => {
     const now = new Date();
     if (key === "this_month") {
@@ -341,6 +341,8 @@ function buildCalExportRows(records: TimeEntry[], employees: Employee[], from: s
           "Employee Name": emp?.employeeName ?? "—",
           "Email": emp?.email ?? "—",
           "Date": dateStr,
+          "Day": DOW_NAMES_SHORT[dowIdx],
+          "Day Type": dayType,
           "Check In": "—",
           "Check Out": "—",
           "Break Sessions": "—",
@@ -349,7 +351,7 @@ function buildCalExportRows(records: TimeEntry[], employees: Employee[], from: s
           "Total Bio Break": "—",
           "Total Worked": "—",
           "Status": dayType,
-          "_dayType": dayType, // hidden, used for coloring only
+          "_dayType": dayType,
         });
       });
     } else {
@@ -363,6 +365,8 @@ function buildCalExportRows(records: TimeEntry[], employees: Employee[], from: s
           "Employee Name": r.employeeName,
           "Email": r.email,
           "Date": dateStr,
+          "Day": DOW_NAMES_SHORT[dowIdx],
+          "Day Type": late ? "Late" : "On Time",
           "Check In": fmt(r.checkIn),
           "Check Out": fmt(r.checkOut),
           "Break Sessions": r.breaks?.length
@@ -375,7 +379,7 @@ function buildCalExportRows(records: TimeEntry[], employees: Employee[], from: s
           "Total Bio Break": fmtMins(r.totalBioBreak),
           "Total Worked": fmtMins(r.totalWorked),
           "Status": r.status.replace(/-/g, " "),
-          "_dayType": dayType, // hidden, used for coloring only
+          "_dayType": dayType,
         });
       });
     }
@@ -398,7 +402,8 @@ async function exportCalToExcel(
   // Exclude the hidden _dayType from visible headers
   const allKeys = Object.keys(rows[0]);
   const headers = allKeys.filter(h => h !== "_dayType");
-  const colWidths = [22, 28, 12, 10, 10, 52, 12, 52, 16, 13, 14];
+  // Column order: Name | Email | Date | Day | Day Type | Check In | Check Out | Break Sessions | Total Break | Bio Break Sessions | Total Bio Break | Total Worked | Status
+  const colWidths = [22, 28, 12, 6, 12, 10, 10, 52, 12, 52, 16, 13, 14];
 
   // Header row
   ws.columns = headers.map((h, i) => ({ header: h, width: colWidths[i] ?? 14 }));
@@ -439,8 +444,24 @@ async function exportCalToExcel(
       cell.border = { bottom: { style: "hair", color: { argb: "FFE4E2DD" } } };
       cell.alignment = { vertical: "middle" };
       if (colNum === 1) cell.font = { ...cell.font, bold: true };
-      // Green bold for Total Worked (col 10)
-      if (colNum === 10 && !bgColor) cell.font = { size: 9, bold: true, color: { argb: "FF16A34A" } };
+
+      // ── Col 5: Day Type — override fill + font for On Time / Late ──
+      if (colNum === 5) {
+        const dt = (row["Day Type"] ?? "").toLowerCase();
+        if (dt === "on time" && !bgColor) {
+          cell.font = { size: 9, bold: true, color: { argb: "FF15803D" } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCFCE7" } };
+        } else if (dt === "late" && !bgColor) {
+          cell.font = { size: 9, bold: true, color: { argb: "FF92400E" } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" } };
+        } else if (bgColor) {
+          // Inherit row colour but still bold
+          cell.font = { size: 9, bold: true, color: { argb: fontColor ?? "FF1E1C1A" } };
+        }
+      }
+
+      // ── Col 12: Total Worked — green bold ──
+      if (colNum === 12 && !bgColor) cell.font = { size: 9, bold: true, color: { argb: "FF16A34A" } };
     });
 
     exRow.height = 16;
@@ -457,7 +478,7 @@ async function exportCalToExcel(
   a.click();
   URL.revokeObjectURL(url);
 }
-// FIX 1: Added from and to parameters to exportCalToPDF
+
 async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label: string, from: string, to: string) {
   const { default: jsPDF } = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
@@ -474,7 +495,6 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
   doc.setTextColor(160, 160, 150);
   doc.text(`Period: ${label}  |  Records: ${records.length}  |  Generated: ${new Date().toLocaleString()}`, 160, 12);
 
-  // FIX 2: Pass from and to into buildCalExportRows (was missing before)
   const rows = buildCalExportRows(records, employees, from, to);
   const headers = Object.keys(rows[0] || {});
   const body = rows.map(r => headers.map(h => r[h as keyof typeof r]));
@@ -488,8 +508,8 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
     alternateRowStyles: { fillColor: [250,249,246] },
     columnStyles: {
       0: { fontStyle: "bold" },
-      9: { textColor: [217,119,6] },   // On Time?
-      14: { textColor: [22,163,74], fontStyle: "bold" }, // Total Worked
+      9: { textColor: [217,119,6] },
+      14: { textColor: [22,163,74], fontStyle: "bold" },
     },
     margin: { left: 10, right: 10 },
   });
@@ -575,7 +595,6 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
   }, [selectedCampaign, selectedEmployee]);
 
   const navigate = (dir: -1|1) => {
-    // If using custom range, nav exits custom range and goes back to calendar nav
     if (useCustomRange) setUseCustomRange(false);
     const d = new Date(currentDate);
     if (viewMode === "monthly") d.setMonth(d.getMonth()+dir);
@@ -1155,7 +1174,6 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
           <p className="ac-subtitle">Visual Attendance Overview</p>
         </div>
         <div className="ac-header-actions">
-          {/* FIX 3: Both export buttons now pass `from` and `to` */}
           <button
             className="btn-export btn-export-excel"
             onClick={async () => { setExporting("excel"); try { await exportCalToExcel(filteredRecords, employees, headerTitle, from, to); } finally { setExporting(null); } }}
@@ -1189,9 +1207,7 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
         <button className={`ac-tab${activeTab==="leaderboard"?" active":""}`} onClick={() => setActiveTab("leaderboard")}>🏆 Leaderboard</button>
       </div>
 
-      {/* ══════════════════════════════════════════════════════════════
-          DATE FILTER CARD (new — same style as employee portal)
-      ══════════════════════════════════════════════════════════════ */}
+      {/* DATE FILTER CARD */}
       <div className="ac-date-filter-card">
         <div className="ac-date-filter-top">
           <div>
@@ -1373,7 +1389,6 @@ async function exportCalToPDF(records: TimeEntry[], employees: Employee[], label
               <div className="ac-day-headers">{DAYS.map(d => <div key={d} className="ac-day-header-cell">{d}</div>)}</div>
             )}
             {useCustomRange ? (
-              /* Custom range: show as a scrollable list of day cells */
               <div className="ac-custom-range-grid">
                 {buildCustomRangeDays().map(d => renderDayCell(d, false))}
               </div>
