@@ -2,9 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import TimeEntry from "@/models/TimeEntry";
-import Employee from "@/models/Employee";
 import { put } from "@vercel/blob";
-import { broadcastPunchEvent } from "@/app/api/time/live/route";
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,7 +37,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No time entry found" }, { status: 404 });
     }
 
-    // Save selfie URL to entry
+    // Save selfie URL to entry — store per action as an array
     if (!entry.selfies) entry.selfies = [];
     entry.selfies.push({
       action,
@@ -48,25 +46,6 @@ export async function POST(req: NextRequest) {
     });
     entry.markModified("selfies");
     await entry.save();
-
-    // Fetch employee profile for broadcast enrichment
-    const empProfile = await Employee.findOne({ email, employeeName }).select(
-      "profilePic role campaign"
-    );
-
-    // Broadcast with selfie — this updates the live card photo in real time
-    broadcastPunchEvent({
-      id: entry._id.toString(),
-      employeeName,
-      email,
-      action,
-      selfieUrl: blob.url,
-      profilePic: empProfile?.profilePic,
-      role: empProfile?.role,
-      campaign: empProfile?.campaign,
-      timestamp: new Date().toISOString(),
-      status: entry.status,
-    });
 
     return NextResponse.json({ selfieUrl: blob.url, entry });
   } catch (err) {
