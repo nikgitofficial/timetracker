@@ -819,7 +819,6 @@
 .lb-rank-1 .lb-name { color: var(--text); font-weight: 700; }
 
 /* ── TABLE ── */
-.lb-table-wrap { }
 .lb-table-title { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-light); margin-bottom: 10px; font-weight: 700; }
 .lb-table {
   width: 100%;
