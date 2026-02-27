@@ -26,12 +26,23 @@ export async function POST(req: NextRequest) {
     });
 
     // Find the active/most recent TimeEntry for this employee today
+    // Retry up to 3 times with 500ms delay — handles race where punch
+    // DB write hasn't committed yet when selfie upload arrives
+    let entry = null;
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const entry = await TimeEntry.findOne({
-      email,
-      employeeName,
-      checkIn: { $gte: oneDayAgo },
-    }).sort({ checkIn: -1 });
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      entry = await TimeEntry.findOne({
+        email,
+        employeeName,
+        checkIn: { $gte: oneDayAgo },
+      }).sort({ checkIn: -1 });
+
+      if (entry) break;
+
+      // Wait 500ms before retrying — punch may still be writing to DB
+      await new Promise(r => setTimeout(r, 500));
+    }
 
     if (!entry) {
       return NextResponse.json({ error: "No time entry found" }, { status: 404 });

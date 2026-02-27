@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState,useRef, useEffect, useCallback } from "react";
 import "./TimeClock.css";
 
 type Action = "check-in" | "break-in" | "break-out" | "bio-break-in" | "bio-break-out" | "check-out";
@@ -130,6 +130,9 @@ export default function TimeClockPage() {
   const emailRef = useRef("");
   const nameRef = useRef("");
 
+  // ── FIX: modalClosedRef prevents selfie upload after modal is closed early ──
+  const modalClosedRef = useRef(false);
+
   const actionContent = {
     "check-in":     { images: ["/images/checkin1.jpg",  "/images/checkin2.jpg"],  messages: ["Welcome! Let's make today productive guys alright rock in roll baby! 💪", "Good to see you! Waka na late hehehehe! 🚀"] },
     "break-in":     { images: ["/images/break1.jpg",    "/images/break2.jpg"],    messages: ["Time to recharge! eat well langga! ☕", "Take a breather, you've earned it! ayawg OB ha! 🌟"] },
@@ -163,6 +166,8 @@ export default function TimeClockPage() {
 
   useEffect(() => {
     if (actionModal) {
+      // ── FIX: reset the closed flag when a fresh modal opens ──
+      modalClosedRef.current = false;
       setCapturedPhoto(null); setCameraError(null); setCameraReady(false);
       setPhotoUploaded(false); setCountdown(null);
       startCamera();
@@ -249,26 +254,18 @@ export default function TimeClockPage() {
 
   // ── FIX: selection lock prevents redundant double-tap/click on name picker ──
   const handleSelectProfile = (profile: EmployeeProfile) => {
-    // If already processing a selection, ignore this call entirely
     if (selectionLockRef.current) return;
     selectionLockRef.current = true;
-
-    // Immediately wipe choices so the picker disappears and cannot be re-clicked
     setEmployeeChoices([]);
     setLookupDone(true);
     setEmployeeProfile(profile);
     setName(profile.employeeName);
-
-    // Use the email ref (always current) instead of the potentially-stale closure value
     fetchStatus(emailRef.current, profile.employeeName);
-
-    // Release the lock after a safe delay (longer than any double-tap window)
     setTimeout(() => { selectionLockRef.current = false; }, 800);
   };
 
   const handleEmailChange = (val: string) => {
     setEmail(val); setEmailError(""); setEmployeeProfile(null); setEmployeeChoices([]); setLookupDone(false);
-    // Reset selection lock whenever the email changes so a fresh lookup works cleanly
     selectionLockRef.current = false;
     if (lookupTimer.current) clearTimeout(lookupTimer.current);
     lookupTimer.current = setTimeout(() => lookupEmployee(val), 750);
@@ -309,6 +306,9 @@ export default function TimeClockPage() {
   };
 
   const capturePhoto = useCallback(() => {
+    // ── FIX: abort if modal was closed before countdown finished ──
+    if (modalClosedRef.current) return;
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
@@ -341,6 +341,9 @@ export default function TimeClockPage() {
   }, []);
 
   const uploadPhoto = async (dataUrl: string, action: string, emailVal: string, nameVal: string) => {
+    // ── FIX: don't upload if modal was already closed ──
+    if (modalClosedRef.current) return;
+
     setUploadingPhoto(true);
     try {
       const res = await fetch(dataUrl); const blob = await res.blob();
@@ -348,9 +351,17 @@ export default function TimeClockPage() {
       const fd = new FormData();
       fd.append("file", file); fd.append("email", emailVal.trim().toLowerCase());
       fd.append("employeeName", nameVal.trim()); fd.append("action", action);
+
+      // ── FIX: check again right before the network call ──
+      if (modalClosedRef.current) return;
+
       const uploadRes = await fetch("/api/time/selfie", { method: "POST", body: fd });
       const data = await uploadRes.json();
-      if (uploadRes.ok) { setPhotoUploaded(true); if (data.entry) setEntry(data.entry); }
+      if (uploadRes.ok) {
+        setPhotoUploaded(true);
+        // ── FIX: only update entry state if modal is still open ──
+        if (data.entry && !modalClosedRef.current) setEntry(data.entry);
+      }
       else { console.error("Selfie upload failed:", data.error); }
     } catch (err) { console.error("Selfie upload error:", err); }
     finally { setUploadingPhoto(false); }
@@ -362,6 +373,9 @@ export default function TimeClockPage() {
   };
 
   const closeModal = () => {
+    // ── FIX: set closed flag FIRST before stopping camera ──
+    // This prevents capturePhoto/uploadPhoto from running after close
+    modalClosedRef.current = true;
     stopCamera(); stopPreview();
     if (countdownRef.current) clearInterval(countdownRef.current);
     setActionModal(null);
@@ -617,8 +631,6 @@ export default function TimeClockPage() {
                     key={i}
                     type="button"
                     className="name-picker-option"
-                    // Use onPointerDown instead of onClick so the selection fires on the
-                    // first physical touch/click and the lock prevents any repeat fires
                     onPointerDown={(e) => { e.preventDefault(); handleSelectProfile(ep); }}
                   >
                     <img src={ep.profilePic || `https://ui-avatars.com/api/?name=${encodeURIComponent(ep.employeeName)}&background=1a2744&color=00ff88&size=48`} alt={ep.employeeName} className="name-picker-avatar" />
