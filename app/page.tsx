@@ -72,16 +72,22 @@ export default function TimeClockPage() {
   const [fetching, setFetching] = useState(false);
   const [actionModal, setActionModal] = useState<{ action: Action; image: string; message: string } | null>(null);
 
-  // ── LIGHTBOX STATE ── (ADDED)
+  // ── LIGHTBOX STATE ──
   const [lightbox, setLightbox] = useState<{ selfies: SelfieEntry[]; index: number } | null>(null);
 
   // ── CAMERA STATE ──
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // ── STABLE REFS (fix stale closure in interval/async callbacks) ──
+  const emailRef = useRef(email);
+  const nameRef = useRef(name);
+  const actionModalRef = useRef(actionModal);
+
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null); // base64 data URL
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoUploaded, setPhotoUploaded] = useState(false);
@@ -152,6 +158,11 @@ export default function TimeClockPage() {
     }
   }, [message]);
 
+  // ── KEEP REFS IN SYNC WITH STATE ──
+  useEffect(() => { emailRef.current = email; }, [email]);
+  useEffect(() => { nameRef.current = name; }, [name]);
+  useEffect(() => { actionModalRef.current = actionModal; }, [actionModal]);
+
   // ── START CAMERA when modal opens ──
   useEffect(() => {
     if (actionModal) {
@@ -171,7 +182,7 @@ export default function TimeClockPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionModal]);
 
-  // ── LIGHTBOX KEYBOARD NAV ── (ADDED)
+  // ── LIGHTBOX KEYBOARD NAV ──
   useEffect(() => {
     if (!lightbox) return;
     const handler = (e: KeyboardEvent) => {
@@ -195,7 +206,6 @@ export default function TimeClockPage() {
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play();
           setCameraReady(true);
-          // Auto-countdown starts after camera is ready
           startCountdown();
         };
       }
@@ -240,7 +250,6 @@ export default function TimeClockPage() {
     canvas.height = video.videoHeight || 480;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    // Mirror the image (selfie style)
     ctx.save();
     ctx.scale(-1, 1);
     ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
@@ -248,36 +257,47 @@ export default function TimeClockPage() {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
     setCapturedPhoto(dataUrl);
     stopCamera();
-    // Auto-upload
     uploadPhoto(dataUrl);
   };
 
+  // ── FIXED: uses refs instead of stale closure values, with retry for check-in race condition ──
   const uploadPhoto = async (dataUrl: string) => {
-    if (!actionModal) return;
+    const currentModal = actionModalRef.current;
+    const currentEmail = emailRef.current;
+    const currentName = nameRef.current;
+
+    if (!currentModal) return;
     setUploadingPhoto(true);
     try {
-      // Convert base64 to Blob
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const file = new File([blob], `selfie-${Date.now()}.jpg`, { type: "image/jpeg" });
 
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("email", email.trim().toLowerCase());
-      formData.append("employeeName", name.trim());
-      formData.append("action", actionModal.action);
+      formData.append("email", currentEmail.trim().toLowerCase());
+      formData.append("employeeName", currentName.trim());
+      formData.append("action", currentModal.action);
 
-      const uploadRes = await fetch("/api/time/selfie", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await uploadRes.json();
-      if (uploadRes.ok) {
+      // Retry up to 3 times with 800ms delay — handles check-in race condition
+      // where the DB entry may not yet be visible when the selfie upload fires
+      let uploadRes: Response | null = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        uploadRes = await fetch("/api/time/selfie", {
+          method: "POST",
+          body: formData,
+        });
+        if (uploadRes.ok) break;
+        if (attempt < 3) await new Promise(r => setTimeout(r, 800));
+      }
+
+      if (uploadRes && uploadRes.ok) {
+        const data = await uploadRes.json();
         setPhotoUploaded(true);
-        // Update local entry with new selfie
         if (data.entry) setEntry(data.entry);
       } else {
-        console.error("Selfie upload failed:", data.error);
+        const data = await uploadRes?.json();
+        console.error("Selfie upload failed:", data?.error);
       }
     } catch (err) {
       console.error("Selfie upload error:", err);
@@ -577,7 +597,6 @@ export default function TimeClockPage() {
                 <div className="selfie-gallery">
                   <div className="selfie-gallery-title">📸 Today&apos;s Selfies</div>
                   <div className="selfie-grid">
-                    {/* UPDATED: added index + onClick to open lightbox */}
                     {entry.selfies.map((s, i) => (
                       <div
                         key={s._id}
@@ -699,7 +718,7 @@ export default function TimeClockPage() {
           </div>
         )}
 
-        {/* ── SELFIE LIGHTBOX ── (ADDED) */}
+        {/* ── SELFIE LIGHTBOX ── */}
         {lightbox && (
           <div className="selfie-lightbox-overlay" onClick={() => setLightbox(null)}>
             <div className="selfie-lightbox-inner" onClick={e => e.stopPropagation()}>
