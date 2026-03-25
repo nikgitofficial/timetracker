@@ -133,6 +133,12 @@ export default function TimeClockPage() {
   // ── FIX: modalClosedRef prevents selfie upload after modal is closed early ──
   const modalClosedRef = useRef(false);
 
+  // ── FIX (RACE CONDITION): store entryId from punch response so selfie upload
+  //    uses a direct _id lookup instead of searching by email/name/date.
+  //    This prevents check-in selfies from failing because the new TimeEntry
+  //    hasn't fully committed to MongoDB yet when the upload arrives. ──
+  const entryIdRef = useRef<string | undefined>(undefined);
+
   const actionContent = {
     "check-in":     { images: ["/images/checkin1.jpg",  "/images/checkin2.jpg"],  messages: ["Welcome! Let's make today productive guys alright rock in roll baby! 💪", "Good to see you! Waka na late hehehehe! 🚀"] },
     "break-in":     { images: ["/images/break1.jpg",    "/images/break2.jpg"],    messages: ["Time to recharge! eat well langga! ☕", "Take a breather, you've earned it! ayawg OB ha! 🌟"] },
@@ -284,7 +290,6 @@ export default function TimeClockPage() {
             .then(() => {
               setCameraReady(true);
               startPreview();
-              // ── CHANGE 1: startCountdown runs for ALL actions including check-in ──
               startCountdown();
             })
             .catch(() => setCameraError("Could not start camera playback."));
@@ -309,7 +314,6 @@ export default function TimeClockPage() {
 
   const capturePhoto = useCallback(() => {
     if (modalClosedRef.current) return;
-    // ── CHANGE 2: removed check-in guard — all actions now capture a selfie ──
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -338,12 +342,14 @@ export default function TimeClockPage() {
     const currentEmail  = emailRef.current;
     const currentName   = nameRef.current;
     if (!currentAction || !currentEmail || !currentName) return;
-    uploadPhoto(dataUrl, currentAction, currentEmail, currentName);
+
+    // ── FIX: pass entryIdRef.current so the API uses a direct _id lookup ──
+    uploadPhoto(dataUrl, currentAction, currentEmail, currentName, entryIdRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const uploadPhoto = async (dataUrl: string, action: string, emailVal: string, nameVal: string) => {
-    // ── FIX: don't upload if modal was already closed ──
+  // ── FIX: accept optional entryId; send it to the API for a direct lookup ──
+  const uploadPhoto = async (dataUrl: string, action: string, emailVal: string, nameVal: string, entryId?: string) => {
     if (modalClosedRef.current) return;
 
     setUploadingPhoto(true);
@@ -351,17 +357,19 @@ export default function TimeClockPage() {
       const res = await fetch(dataUrl); const blob = await res.blob();
       const file = new File([blob], `selfie-${Date.now()}.jpg`, { type: "image/jpeg" });
       const fd = new FormData();
-      fd.append("file", file); fd.append("email", emailVal.trim().toLowerCase());
-      fd.append("employeeName", nameVal.trim()); fd.append("action", action);
+      fd.append("file", file);
+      fd.append("email", emailVal.trim().toLowerCase());
+      fd.append("employeeName", nameVal.trim());
+      fd.append("action", action);
+      // ── FIX: include entryId so the API route can find the record instantly ──
+      if (entryId) fd.append("entryId", entryId);
 
-      // ── FIX: check again right before the network call ──
       if (modalClosedRef.current) return;
 
       const uploadRes = await fetch("/api/time/selfie", { method: "POST", body: fd });
       const data = await uploadRes.json();
       if (uploadRes.ok) {
         setPhotoUploaded(true);
-        // ── FIX: only update entry state if modal is still open ──
         if (data.entry && !modalClosedRef.current) setEntry(data.entry);
       }
       else { console.error("Selfie upload failed:", data.error); }
@@ -375,7 +383,6 @@ export default function TimeClockPage() {
   };
 
   const closeModal = () => {
-    // ── FIX: set closed flag FIRST before stopping camera ──
     modalClosedRef.current = true;
     stopCamera(); stopPreview();
     if (countdownRef.current) clearInterval(countdownRef.current);
@@ -450,6 +457,11 @@ export default function TimeClockPage() {
       else {
         setMessage({ text: data.message, type: "success" });
         setEntry(data.entry);
+        // ── FIX: store the entry _id in a ref BEFORE opening the modal so
+        //    capturePhoto/uploadPhoto can pass it straight to the API.
+        //    This eliminates the race condition where a new check-in entry
+        //    hasn't fully committed to MongoDB by the time the selfie uploads. ──
+        entryIdRef.current = data.entry._id;
         const { image, message: msg } = getActionContent(action);
         setActionModal({ action, image, message: msg });
       }
@@ -769,7 +781,6 @@ export default function TimeClockPage() {
                   </div>
                 )}
 
-                {/* ── CHANGE 3: camera section now shows for ALL actions including check-in ── */}
                 <div className="camera-section">
                   {!capturedPhoto && !cameraError && (
                     <>
