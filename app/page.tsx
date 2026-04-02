@@ -1,6 +1,6 @@
 "use client";
 
-import { useState,useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import "./TimeClock.css";
 
 type Action = "check-in" | "break-in" | "break-out" | "bio-break-in" | "bio-break-out" | "check-out";
@@ -97,7 +97,7 @@ export default function TimeClockPage() {
   const [lookupDone, setLookupDone] = useState(false);
   const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── FIX: selection lock prevents double-tap/double-click on name picker ──
+  // ── selection lock prevents double-tap/double-click on name picker ──
   const selectionLockRef = useRef(false);
 
   // ── DATE PICKER ──
@@ -125,19 +125,17 @@ export default function TimeClockPage() {
   const [photoUploaded, setPhotoUploaded] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── FIX: refs to hold live values so camera callbacks never read stale closure state ──
-  const actionModalRef = useRef<{ action: Action; image: string; message: string } | null>(null);
+  // ── modalClosedRef prevents selfie upload after modal is closed early ──
+  const modalClosedRef = useRef(false);
+
+  // ── FIX: store entryId, email, name in refs so camera callbacks always
+  //    have the correct values — set synchronously before startCamera is called ──
+  const entryIdRef = useRef<string | undefined>(undefined);
   const emailRef = useRef("");
   const nameRef = useRef("");
 
-  // ── FIX: modalClosedRef prevents selfie upload after modal is closed early ──
-  const modalClosedRef = useRef(false);
-
-  // ── FIX (RACE CONDITION): store entryId from punch response so selfie upload
-  //    uses a direct _id lookup instead of searching by email/name/date.
-  //    This prevents check-in selfies from failing because the new TimeEntry
-  //    hasn't fully committed to MongoDB yet when the upload arrives. ──
-  const entryIdRef = useRef<string | undefined>(undefined);
+  // ── actionModal ref for captureAndUpload callback ──
+  const actionModalRef = useRef<{ action: Action; image: string; message: string } | null>(null);
 
   const actionContent = {
     "check-in":     { images: ["/images/checkin1.jpg",  "/images/checkin2.jpg"],  messages: ["Welcome! Let's make today productive guys alright rock in roll baby! 💪", "Good to see you! Waka na late hehehehe! 🚀"] },
@@ -170,17 +168,36 @@ export default function TimeClockPage() {
     setHistoricalMessage(null);
   }, [selectedDate, today]);
 
+  // ── Keep actionModalRef in sync ──
+  useEffect(() => { actionModalRef.current = actionModal; }, [actionModal]);
+
+  // ── FIX: keep emailRef and nameRef in sync with state so Snap Now button
+  //    always reads the latest values even if state updates are batched ──
+  useEffect(() => { emailRef.current = email; }, [email]);
+  useEffect(() => { nameRef.current = name; }, [name]);
+
+  // ── Open/close modal — camera is started with explicit values, NOT refs ──
   useEffect(() => {
     if (actionModal) {
-      // ── FIX: reset the closed flag when a fresh modal opens ──
       modalClosedRef.current = false;
-      setCapturedPhoto(null); setCameraError(null); setCameraReady(false);
-      setPhotoUploaded(false); setCountdown(null);
-      startCamera();
+      setCapturedPhoto(null);
+      setCameraError(null);
+      setCameraReady(false);
+      setPhotoUploaded(false);
+      setCountdown(null);
+      // FIX: pass email, name, entryId explicitly at the moment the modal opens.
+      // These values are set synchronously in handleAction before setActionModal,
+      // so they are guaranteed to be current here.
+      startCamera(emailRef.current, nameRef.current, entryIdRef.current);
     } else {
-      stopCamera(); stopPreview();
+      stopCamera();
+      stopPreview();
     }
-    return () => { stopCamera(); stopPreview(); if (countdownRef.current) clearInterval(countdownRef.current); };
+    return () => {
+      stopCamera();
+      stopPreview();
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionModal]);
 
@@ -194,11 +211,6 @@ export default function TimeClockPage() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [lightbox]);
-
-  // ── FIX: keep refs in sync with their state counterparts ──
-  useEffect(() => { actionModalRef.current = actionModal; }, [actionModal]);
-  useEffect(() => { emailRef.current = email; }, [email]);
-  useEffect(() => { nameRef.current = name; }, [name]);
 
   // ── Auto-open timeline when new entry loads ──
   useEffect(() => {
@@ -258,7 +270,6 @@ export default function TimeClockPage() {
     } finally { setLookingUp(false); }
   }, []);
 
-  // ── FIX: selection lock prevents redundant double-tap/click on name picker ──
   const handleSelectProfile = (profile: EmployeeProfile) => {
     if (selectionLockRef.current) return;
     selectionLockRef.current = true;
@@ -266,12 +277,16 @@ export default function TimeClockPage() {
     setLookupDone(true);
     setEmployeeProfile(profile);
     setName(profile.employeeName);
+    // FIX: also update nameRef immediately since setName is async
+    nameRef.current = profile.employeeName;
     fetchStatus(emailRef.current, profile.employeeName);
     setTimeout(() => { selectionLockRef.current = false; }, 800);
   };
 
   const handleEmailChange = (val: string) => {
-    setEmail(val); setEmailError(""); setEmployeeProfile(null); setEmployeeChoices([]); setLookupDone(false);
+    setEmail(val);
+    emailRef.current = val; // FIX: keep ref in sync immediately
+    setEmailError(""); setEmployeeProfile(null); setEmployeeChoices([]); setLookupDone(false);
     selectionLockRef.current = false;
     if (lookupTimer.current) clearTimeout(lookupTimer.current);
     lookupTimer.current = setTimeout(() => lookupEmployee(val), 750);
@@ -279,9 +294,15 @@ export default function TimeClockPage() {
 
   // ── CAMERA ──
 
-  const startCamera = async () => {
+  // FIX: startCamera now receives email, name, entryId explicitly.
+  // These are threaded all the way through to captureAndUpload so no
+  // ref staleness can ever cause a silent bail-out for any action.
+  const startCamera = async (emailVal: string, nameVal: string, entryId?: string) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -290,12 +311,14 @@ export default function TimeClockPage() {
             .then(() => {
               setCameraReady(true);
               startPreview();
-              startCountdown();
+              startCountdown(emailVal, nameVal, entryId);
             })
             .catch(() => setCameraError("Could not start camera playback."));
         };
       }
-    } catch { setCameraError("Camera access denied or unavailable."); }
+    } catch {
+      setCameraError("Camera access denied or unavailable.");
+    }
   };
 
   const stopCamera = () => {
@@ -304,64 +327,97 @@ export default function TimeClockPage() {
     if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
   };
 
-  const startCountdown = () => {
-    setCountdown(15); let count = 15;
+  // FIX: startCountdown receives and forwards email, name, entryId
+  // so the values are guaranteed fresh when captureAndUpload fires.
+  const startCountdown = (emailVal: string, nameVal: string, entryId?: string) => {
+    setCountdown(15);
+    let count = 15;
     countdownRef.current = setInterval(() => {
-      count -= 1; setCountdown(count);
-      if (count <= 0) { clearInterval(countdownRef.current!); countdownRef.current = null; setCountdown(null); capturePhoto(); }
+      count -= 1;
+      setCountdown(count);
+      if (count <= 0) {
+        clearInterval(countdownRef.current!);
+        countdownRef.current = null;
+        setCountdown(null);
+        captureAndUpload(emailVal, nameVal, entryId);
+      }
     }, 1000);
   };
 
-  const capturePhoto = useCallback(() => {
+  // FIX: captureAndUpload replaces the old capturePhoto.
+  // It accepts explicit email, name, entryId — no silent bail-outs,
+  // no stale closure values. Works identically for every action type.
+  const captureAndUpload = useCallback((emailVal: string, nameVal: string, entryId?: string) => {
     if (modalClosedRef.current) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
+
     if (video.readyState < 2 || video.videoWidth === 0) {
       setCameraError("Camera not ready — tap Snap Now to retry.");
       return;
     }
+
     canvas.width  = video.videoWidth  || 640;
     canvas.height = video.videoHeight || 480;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
     ctx.save();
     ctx.scale(-1, 1);
     ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
     ctx.restore();
+
     const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
     if (!dataUrl || dataUrl === "data:," || dataUrl.length < 5000) {
       setCameraError("Blank frame captured — tap Snap Now.");
       return;
     }
+
     stopPreview();
     setCapturedPhoto(dataUrl);
     stopCamera();
-    const currentAction = actionModalRef.current?.action;
-    const currentEmail  = emailRef.current;
-    const currentName   = nameRef.current;
-    if (!currentAction || !currentEmail || !currentName) return;
 
-    // ── FIX: pass entryIdRef.current so the API uses a direct _id lookup ──
-    uploadPhoto(dataUrl, currentAction, currentEmail, currentName, entryIdRef.current);
+    // FIX: read action from ref (this is safe — action doesn't change
+    // during a modal session, only email/name/entryId were ever stale)
+    const currentAction = actionModalRef.current?.action;
+    if (!currentAction) {
+      setCameraError("Action lost — please close and try again.");
+      return;
+    }
+
+    // FIX: validate before upload and show a visible error instead of
+    // silently returning — this was the root cause for check-in and all
+    // other actions where a value was unexpectedly empty
+    if (!emailVal || !nameVal) {
+      setCameraError(`Missing identity — email: "${emailVal}" name: "${nameVal}". Please close and try again.`);
+      return;
+    }
+
+    uploadPhoto(dataUrl, currentAction, emailVal, nameVal, entryId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── FIX: accept optional entryId; send it to the API for a direct lookup ──
-  const uploadPhoto = async (dataUrl: string, action: string, emailVal: string, nameVal: string, entryId?: string) => {
+  const uploadPhoto = async (
+    dataUrl: string,
+    action: string,
+    emailVal: string,
+    nameVal: string,
+    entryId?: string,
+  ) => {
     if (modalClosedRef.current) return;
 
     setUploadingPhoto(true);
     try {
-      const res = await fetch(dataUrl); const blob = await res.blob();
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
       const file = new File([blob], `selfie-${Date.now()}.jpg`, { type: "image/jpeg" });
       const fd = new FormData();
       fd.append("file", file);
       fd.append("email", emailVal.trim().toLowerCase());
       fd.append("employeeName", nameVal.trim());
       fd.append("action", action);
-      // ── FIX: include entryId so the API route can find the record instantly ──
       if (entryId) fd.append("entryId", entryId);
 
       if (modalClosedRef.current) return;
@@ -371,20 +427,30 @@ export default function TimeClockPage() {
       if (uploadRes.ok) {
         setPhotoUploaded(true);
         if (data.entry && !modalClosedRef.current) setEntry(data.entry);
+      } else {
+        console.error("Selfie upload failed:", data.error);
+        // Show a non-blocking notice so the user knows — doesn't break the punch
+        setCameraError(`⚠️ Selfie save failed: ${data.error ?? "unknown error"}`);
       }
-      else { console.error("Selfie upload failed:", data.error); }
-    } catch (err) { console.error("Selfie upload error:", err); }
-    finally { setUploadingPhoto(false); }
+    } catch (err) {
+      console.error("Selfie upload error:", err);
+      setCameraError("⚠️ Selfie upload failed — network error.");
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   const retakePhoto = () => {
-    setCapturedPhoto(null); setPhotoUploaded(false);
-    startCamera();
+    setCapturedPhoto(null);
+    setPhotoUploaded(false);
+    // FIX: pass explicit values to startCamera on retake too
+    startCamera(emailRef.current, nameRef.current, entryIdRef.current);
   };
 
   const closeModal = () => {
     modalClosedRef.current = true;
-    stopCamera(); stopPreview();
+    stopCamera();
+    stopPreview();
     if (countdownRef.current) clearInterval(countdownRef.current);
     setActionModal(null);
   };
@@ -446,27 +512,36 @@ export default function TimeClockPage() {
     if (!employeeProfile) { setMessage({ text: "⛔ Your email is not in the employee roster. Please contact your admin.", type: "error" }); return; }
     if (employeeProfile.status !== "active") { setMessage({ text: `⛔ Your status is "${employeeProfile.status.replace("-", " ")}". Only active employees can clock in.`, type: "error" }); return; }
     if (employeeProfile.employeeName.trim().toLowerCase() !== name.trim().toLowerCase()) { setMessage({ text: `⛔ Name mismatch. Please use your registered name: "${employeeProfile.employeeName}"`, type: "error" }); return; }
+
     setLoading(true);
     try {
       const res = await fetch("/api/time/punch", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ employeeName: name.trim(), email: email.trim().toLowerCase(), action }),
       });
       const data = await res.json();
-      if (!res.ok) { setMessage({ text: data.error || "Action failed", type: "error" }); }
-      else {
+      if (!res.ok) {
+        setMessage({ text: data.error || "Action failed", type: "error" });
+      } else {
         setMessage({ text: data.message, type: "success" });
         setEntry(data.entry);
-        // ── FIX: store the entry _id in a ref BEFORE opening the modal so
-        //    capturePhoto/uploadPhoto can pass it straight to the API.
-        //    This eliminates the race condition where a new check-in entry
-        //    hasn't fully committed to MongoDB by the time the selfie uploads. ──
+
+        // FIX: set ALL three refs synchronously BEFORE calling setActionModal.
+        // The useEffect on actionModal fires after the render, and startCamera
+        // is called from within it reading these refs — they must be current.
         entryIdRef.current = data.entry._id;
+        emailRef.current = email.trim().toLowerCase();
+        nameRef.current = name.trim();
+
         const { image, message: msg } = getActionContent(action);
         setActionModal({ action, image, message: msg });
       }
-    } catch { setMessage({ text: "Network error, please try again", type: "error" }); }
-    finally { setLoading(false); }
+    } catch {
+      setMessage({ text: "Network error, please try again", type: "error" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ── DERIVED ──
@@ -512,8 +587,6 @@ export default function TimeClockPage() {
 
     return (
       <div className="timeline">
-
-        {/* ── TIMELINE COLLAPSIBLE HEADER ── */}
         <button
           className="section-toggle-btn"
           onClick={() => setTimelineOpen(o => !o)}
@@ -529,7 +602,6 @@ export default function TimeClockPage() {
           <span className={`section-toggle-chevron${timelineOpen ? " open" : ""}`} />
         </button>
 
-        {/* ── COLLAPSIBLE BODY ── */}
         <div className={`section-collapse${timelineOpen ? " section-collapse-open" : ""}`}>
           <div className="section-collapse-inner">
             <div className="timeline-row"><span className="timeline-label">🟢 Check In</span><span className="timeline-value">{formatTime(rec.checkIn)}</span></div>
@@ -559,10 +631,8 @@ export default function TimeClockPage() {
           </div>
         </div>
 
-        {/* ── SELFIE GALLERY with its own toggle ── */}
         {selfieCount > 0 && (
           <div className="selfie-gallery">
-
             <button
               className="section-toggle-btn section-toggle-btn-selfie"
               onClick={() => setSelfieOpen(o => !o)}
@@ -585,7 +655,6 @@ export default function TimeClockPage() {
                 </div>
               </div>
             </div>
-
           </div>
         )}
       </div>
@@ -814,13 +883,17 @@ export default function TimeClockPage() {
                         {uploadingPhoto ? "⏳ UPLOADING…" : photoUploaded ? "✅ SELFIE SAVED" : capturedPhoto ? "📸 CAPTURED" : countdown !== null ? `📷 AUTO IN ${countdown}s` : "📷 READY"}
                       </span>
                       {capturedPhoto && !uploadingPhoto && (
-                        <div className="camera-btn-row"><button className="btn-retake btn-camera-action" onClick={retakePhoto}>🔄 RETAKE</button></div>
+                        <div className="camera-btn-row">
+                          <button className="btn-retake btn-camera-action" onClick={retakePhoto}>🔄 RETAKE</button>
+                        </div>
                       )}
                       {cameraReady && !capturedPhoto && (
                         <div className="camera-btn-row">
+                          {/* FIX: Snap Now also uses explicit ref values — consistent with startCountdown */}
                           <button className="btn-manual-capture btn-camera-action" onClick={() => {
                             if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
-                            setCountdown(null); capturePhoto();
+                            setCountdown(null);
+                            captureAndUpload(emailRef.current, nameRef.current, entryIdRef.current);
                           }}>📸 SNAP NOW</button>
                         </div>
                       )}
